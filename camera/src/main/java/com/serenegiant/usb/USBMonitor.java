@@ -67,7 +67,7 @@ public final class USBMonitor {
     /**
      * Attach/detach broadcasts are primary; slow polling covers OEMs that omit attach broadcasts.
      */
-    private static final int CHECK_DEVICE_RUNNABLE_DELAY = 1000;
+    private final long devicePollMillis;
 
     private static final String ACTION_USB_PERMISSION_BASE = "com.serenegiant.USB_PERMISSION.";
     private final String ACTION_USB_PERMISSION = ACTION_USB_PERMISSION_BASE + hashCode();
@@ -152,6 +152,12 @@ public final class USBMonitor {
     }
 
     public USBMonitor(final Context context, final OnDeviceConnectListener listener, final Handler handler) {
+        this(context, listener, handler, 1000);
+    }
+
+    public USBMonitor(final Context context, final OnDeviceConnectListener listener, final Handler handler, long devicePollMillis) {
+        if (devicePollMillis != 0 && devicePollMillis < 1000) throw new IllegalArgumentException("Polling must be 0 or >= 1000 ms");
+        this.devicePollMillis = devicePollMillis;
         if (DEBUG) Log.v(TAG, "USBMonitor:Constructor");
         if (listener == null) {
             throw new IllegalArgumentException("OnDeviceConnectListener should not null.");
@@ -644,7 +650,7 @@ public final class USBMonitor {
                     }
                 });
             }
-            if (isRegistered()) mAsyncHandler.postDelayed(this, CHECK_DEVICE_RUNNABLE_DELAY);
+            if (isRegistered() && devicePollMillis > 0) mAsyncHandler.postDelayed(this, devicePollMillis);
         }
     };
 

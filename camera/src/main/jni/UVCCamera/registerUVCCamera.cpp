@@ -1,3 +1,4 @@
+// Modified by FaceSDKPro, 2026-11-03; see UPSTREAM.md for changes.
 /*
  * UVCCamera
  * library and sample to access to UVC web camera on non-rooted Android device
@@ -234,6 +235,11 @@ static jint nativeSetPreviewSize(JNIEnv *env, jobject thiz,
     RETURN(JNI_ERR, jint);
 }
 
+static jlong nativeGetPreviewFrameCount(JNIEnv *env, jobject thiz, ID_TYPE id_camera) {
+    UVCCamera *camera = reinterpret_cast<UVCCamera *>(id_camera);
+    return camera ? static_cast<jlong>(camera->previewFrameCount()) : 0;
+}
+
 static jint nativeStartPreview(JNIEnv *env, jobject thiz,
                                ID_TYPE id_camera) {
 
@@ -330,6 +336,7 @@ static JNINativeMethod methods[] = {
 
         {"nativeGetSupportedFormats", "(J)Ljava/lang/String;",                     (void *) nativeGetSupportedFormats},
         {"nativeSetPreviewSize",      "(JIIII)I",                                  (void *) nativeSetPreviewSize},
+        {"nativeGetPreviewFrameCount", "(J)J", (void *) nativeGetPreviewFrameCount},
         {"nativeStartPreview",        "(J)I",                                      (void *) nativeStartPreview},
         {"nativeStopPreview",         "(J)I",                                      (void *) nativeStopPreview},
         {"nativeSetPreviewDisplay",   "(JLandroid/view/Surface;)I",                (void *) nativeSetPreviewDisplay},

@@ -56,6 +56,12 @@ public final class UvcCameraManager implements AutoCloseable {
     private Camera requesting;
 
     public UvcCameraManager(Context context, Listener listener) {
+        this(context, listener, 5000);
+    }
+
+    /** Fallback device scan interval: 0 disables polling; broadcasts and the initial scan remain active. */
+    public UvcCameraManager(Context context, Listener listener, long devicePollMillis) {
+        if (devicePollMillis != 0 && devicePollMillis < 1000) throw new IllegalArgumentException("Device polling must be 0 or >= 1000 ms");
         if (listener == null) throw new NullPointerException("listener");
         this.listener = listener;
         Context app = context.getApplicationContext();
@@ -77,6 +83,7 @@ public final class UvcCameraManager implements AutoCloseable {
                 Camera camera = requesting;
                 if (camera == null || !camera.device.equals(device)) return;
                 requesting = null;
+                worker.removeCallbacksAndMessages(camera);
                 if (!camera.closed.get() && !closed.get()) start(camera, control);
                 pumpPermissions();
             }
@@ -88,7 +95,7 @@ public final class UvcCameraManager implements AutoCloseable {
             public void onError(UsbDevice device, USBMonitor.USBException error) {
                 permissionFailed(device, "USB open failed", error);
             }
-        }, worker);
+        }, worker, devicePollMillis);
         worker.post(monitor::register);
     }
 
@@ -138,13 +145,13 @@ public final class UvcCameraManager implements AutoCloseable {
             requesting = next;
             final Camera pending = next;
             monitor.requestPermission(next.device);
-            worker.postDelayed(() -> {
+            worker.postAtTime(() -> {
                 if (requesting == pending) {
                     requesting = null;
                     fail(pending, "USB permission request timed out", null);
                     pumpPermissions();
                 }
-            }, 30000);
+            }, pending, SystemClock.uptimeMillis() + 30000);
             break;
         }
     }
@@ -171,16 +178,15 @@ public final class UvcCameraManager implements AutoCloseable {
                     session.frames.onFrame(session, new CameraFrame(buffer, config, sequence, SystemClock.elapsedRealtimeNanos()));
                 } catch (RuntimeException error) {
                     // Close on the command thread: stopping native capture inside its callback would deadlock.
-                    worker.post(() -> fail(session, "Frame listener failed", error));
+                    if (session.closed.compareAndSet(false, true))
+                        worker.post(() -> fail(session, "Frame listener failed", error));
                 }
             }, config.pixelFormat);
-            // Count frames even for preview-only sessions, so startup errors cannot look like success.
-            else camera.setFrameCallback(buffer -> session.frameCount.incrementAndGet(), UVCCamera.PIXEL_FORMAT_RGBX);
             camera.startPreview();
             emit(() -> { if (!session.closed.get()) listener.onOpened(session); });
-            worker.postDelayed(() -> {
-                if (!session.closed.get() && session.frameCount.get() == 0) fail(session, "Camera produced no frames within 5 seconds", null);
-            }, 5000);
+            worker.postAtTime(() -> {
+                if (!session.closed.get() && session.receivedFrames() == 0) fail(session, "Camera produced no frames within 5 seconds", null);
+            }, session, SystemClock.uptimeMillis() + 5000);
         } catch (Exception error) { fail(session, "Camera start failed", error); }
     }
 
@@ -190,14 +196,19 @@ public final class UvcCameraManager implements AutoCloseable {
 
     private void stop(Camera camera) {
         camera.closed.set(true);
+        worker.removeCallbacksAndMessages(camera);
+        boolean wasRequesting = requesting == camera;
+        if (wasRequesting) requesting = null;
         permissions.remove(camera);
         if (cameras.get(camera.device.getDeviceName()) == camera) cameras.remove(camera.device.getDeviceName());
+        camera.frameCount.set(camera.receivedFrames());
         UVCCamera nativeCamera = camera.nativeCamera; camera.nativeCamera = null;
         if (nativeCamera != null) {
             try { nativeCamera.destroy(true); }
             catch (RuntimeException error) { emit(() -> listener.onError(camera.device, "Camera release failed", error)); }
             finally { emit(() -> listener.onClosed(camera)); }
         }
+        if (wasRequesting) pumpPermissions();
     }
 
     private void emit(Runnable action) {
@@ -226,12 +237,16 @@ public final class UvcCameraManager implements AutoCloseable {
         private final FrameListener frames;
         private final AtomicBoolean closed = new AtomicBoolean();
         private final AtomicLong frameCount = new AtomicLong();
-        private UVCCamera nativeCamera;
+        private volatile UVCCamera nativeCamera;
         private Camera(UsbDevice device, StreamConfig config, Surface preview, FrameListener frames) {
             this.device = device; this.config = config; this.preview = preview; this.frames = frames;
         }
         public boolean isClosed() { return closed.get(); }
-        public long receivedFrames() { return frameCount.get(); }
+        public long receivedFrames() {
+            UVCCamera camera = nativeCamera;
+            long count = frames == null && camera != null ? camera.getPreviewFrameCount() : 0;
+            return Math.max(frameCount.get(), count);
+        }
         /** Controls are executed on the same command thread as open/close; do not retain the control object. */
         public void withControls(ControlAction action) {
             if (action == null) throw new NullPointerException("action");

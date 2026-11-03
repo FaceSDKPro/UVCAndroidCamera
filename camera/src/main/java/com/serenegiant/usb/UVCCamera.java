@@ -75,6 +75,8 @@ public class UVCCamera {
     public static final int PIXEL_FORMAT_RGB565 = 5;
     public static final int PIXEL_FORMAT_RGBX = 6;
     public static final int PIXEL_FORMAT_BGR = 7;
+    /** Packed full-range JPEG luma for IR analysis; width * height bytes. */
+    public static final int PIXEL_FORMAT_GRAY8 = 8;
 
     /**
      * This quirk makes the assumption that the device calculated bandwidth is wrong
@@ -536,11 +538,11 @@ public class UVCCamera {
      *
      * @param callback    The callback that receive frame data in pixelFormat
      * @param pixelFormat The frame format of callback.
-     *                    Can be {@link #PIXEL_FORMAT_RAW}, {@link #PIXEL_FORMAT_YUV}, {@link #PIXEL_FORMAT_NV12}, {@link #PIXEL_FORMAT_NV21}, {@link #PIXEL_FORMAT_RGB}, {@link #PIXEL_FORMAT_RGB565}, {@link #PIXEL_FORMAT_BGR}.
+     *                    Can be {@link #PIXEL_FORMAT_RAW}, {@link #PIXEL_FORMAT_YUV}, {@link #PIXEL_FORMAT_NV12}, {@link #PIXEL_FORMAT_NV21}, {@link #PIXEL_FORMAT_RGB}, {@link #PIXEL_FORMAT_RGB565}, {@link #PIXEL_FORMAT_BGR}, {@link #PIXEL_FORMAT_GRAY8}.
      */
     public void setFrameCallback(final IFrameCallback callback, final int pixelFormat) {
         if (mNativePtr != 0) {
-            if (pixelFormat < PIXEL_FORMAT_RAW || pixelFormat > PIXEL_FORMAT_BGR) {
+            if (pixelFormat < PIXEL_FORMAT_RAW || pixelFormat > PIXEL_FORMAT_GRAY8) {
                 throw new IllegalArgumentException("Unsupported callback pixel format");
             }
             int status = nativeSetFrameCallback(mNativePtr, callback, pixelFormat);
@@ -548,9 +550,12 @@ public class UVCCamera {
         }
     }
 
-    /**
-     * start preview
-     */
+    /** Successfully posted preview frames; no pixel callback is required for this counter. */
+    public synchronized long getPreviewFrameCount() {
+        return mNativePtr != 0 ? nativeGetPreviewFrameCount(mNativePtr) : 0;
+    }
+
+    /** Start preview and/or pixel delivery. */
     public synchronized void startPreview() {
         if (mCtrlBlock != null) {
             int status = nativeStartPreview(mNativePtr);
@@ -636,6 +641,8 @@ public class UVCCamera {
     private native int nativeSetPreviewSize(final long id_camera, final int width, final int height, final int frameType, final int fps);
 
     private native String nativeGetSupportedFormats(final long id_camera);
+
+    private native long nativeGetPreviewFrameCount(final long id_camera);
 
     private native int nativeStartPreview(final long id_camera);
 

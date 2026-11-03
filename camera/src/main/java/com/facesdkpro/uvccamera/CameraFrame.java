@@ -13,7 +13,7 @@ public final class CameraFrame {
     private final ByteBuffer pixels;
 
     CameraFrame(ByteBuffer pixels, StreamConfig config, long sequence, long arrivalTimeNanos) {
-        this.pixels = pixels.asReadOnlyBuffer();
+        this.pixels = pixels; // JNI creates a separate borrowed view for each callback.
         this.width = config.width; this.height = config.height; this.pixelFormat = config.pixelFormat;
         this.sequence = sequence; this.arrivalTimeNanos = arrivalTimeNanos;
     }
@@ -26,11 +26,39 @@ public final class CameraFrame {
         ByteBuffer view = pixels(); byte[] copy = new byte[view.remaining()]; view.get(copy); return copy;
     }
 
-    /** Copy the Y plane of an NV21/NV12 callback to packed GRAY8, without an RGB/Bitmap round trip. */
+    /** Copy pixels into caller-owned reusable storage. Returns bytes written. */
+    public int copyPixelsTo(byte[] destination, int offset) {
+        return copyTo(destination, offset, pixels.remaining());
+    }
+
+    /** Borrow the packed Y plane of NV21/NV12, or all pixels of GRAY8. */
+    public ByteBuffer luma() {
+        requireLuma();
+        ByteBuffer view = pixels(); view.limit(width * height); return view;
+    }
+
+    /** Copy luma into caller-owned reusable storage. Returns bytes written. */
+    public int copyLumaTo(byte[] destination, int offset) {
+        requireLuma();
+        return copyTo(destination, offset, width * height);
+    }
+
+    /** Explicit owned packed GRAY8 copy; luma()/copyLumaTo() avoid allocating an image array. */
     public byte[] copyLuma() {
-        if (pixelFormat != UVCCamera.PIXEL_FORMAT_NV21 && pixelFormat != UVCCamera.PIXEL_FORMAT_NV12) {
-            throw new IllegalStateException("copyLuma requires NV21 or NV12");
+        requireLuma();
+        byte[] gray = new byte[width * height]; copyLumaTo(gray, 0); return gray;
+    }
+
+    private void requireLuma() {
+        if (pixelFormat != UVCCamera.PIXEL_FORMAT_NV21 && pixelFormat != UVCCamera.PIXEL_FORMAT_NV12
+                && pixelFormat != UVCCamera.PIXEL_FORMAT_GRAY8) {
+            throw new IllegalStateException("Luma requires NV21, NV12 or GRAY8");
         }
-        ByteBuffer view = pixels(); byte[] gray = new byte[width * height]; view.get(gray); return gray;
+    }
+
+    private int copyTo(byte[] destination, int offset, int length) {
+        if (destination == null) throw new NullPointerException("destination");
+        if (offset < 0 || offset > destination.length - length) throw new IndexOutOfBoundsException("Destination too small");
+        ByteBuffer view = pixels(); view.limit(length); view.get(destination, offset, length); return length;
     }
 }

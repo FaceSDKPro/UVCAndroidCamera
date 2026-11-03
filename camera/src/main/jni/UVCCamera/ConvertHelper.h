@@ -14,7 +14,17 @@
 #define PIXEL_BGR            3
 #define PIXEL_RGBX            4
 
-int uvc_mjpeg2rgbx_tj(uvc_frame_t *in, uvc_frame_t *out);
+// One instance per decoding thread. Reuse JPEG state across frames; never share across cameras.
+class MjpegDecoder {
+    tjhandle handle = nullptr;
+    MjpegDecoder(const MjpegDecoder &) = delete;
+    MjpegDecoder &operator=(const MjpegDecoder &) = delete;
+public:
+    MjpegDecoder() = default;
+    ~MjpegDecoder();
+    int decode(uvc_frame_t *in, uvc_frame_t *out, bool gray = false);
+};
+int uvc_rgbx_to_gray8(uvc_frame_t *in, uvc_frame_t *out);
 
 
 

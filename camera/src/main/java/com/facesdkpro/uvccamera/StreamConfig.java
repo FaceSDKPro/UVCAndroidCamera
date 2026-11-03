@@ -17,7 +17,7 @@ public final class StreamConfig {
         if (frameType != UVCCamera.UVC_VS_FRAME_MJPEG && frameType != UVCCamera.UVC_VS_FRAME_UNCOMPRESSED) {
             throw new IllegalArgumentException("Only MJPEG and uncompressed YUYV modes are supported");
         }
-        if (pixelFormat < UVCCamera.PIXEL_FORMAT_RAW || pixelFormat > UVCCamera.PIXEL_FORMAT_BGR) {
+        if (pixelFormat < UVCCamera.PIXEL_FORMAT_RAW || pixelFormat > UVCCamera.PIXEL_FORMAT_GRAY8) {
             throw new IllegalArgumentException("Unsupported callback pixel format");
         }
         this.width = width; this.height = height; this.fps = fps;

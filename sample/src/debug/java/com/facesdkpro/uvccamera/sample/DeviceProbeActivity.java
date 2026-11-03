@@ -66,11 +66,11 @@ public final class DeviceProbeActivity extends Activity {
         snapshotFds("start");
         manager=new UvcCameraManager(this,new UvcCameraManager.Listener(){
             public void onOpened(UvcCameraManager.Camera camera){
-                camera.withControls(control->{
+                if(cycle<=7)camera.withControls(control->{
                     boolean supported=control.isBrightnessEnable();int value=supported?control.getBrightness():0;
                     main.post(()->{controlChecks++;check("control_read_cycle_"+cycle,true,"brightness_supported="+supported+", value="+value);});
                 });
-                if(++opened==2&&!measuring){measuring=true;main.postDelayed(()->sampleAndClose(),8000);}
+                if(++opened==2&&!measuring){measuring=true;if(cycle>=8){for(UvcCameraManager.Camera c:cameras)c.close();}else main.postDelayed(()->sampleAndClose(),8000);}
             }
             public void onClosed(UvcCameraManager.Camera camera){if(!expectingBadMode&&++stopped==2)main.postDelayed(()->afterClose(),400);}
             public void onError(UsbDevice device,String message,Throwable cause){
@@ -81,7 +81,7 @@ public final class DeviceProbeActivity extends Activity {
         });
         devices=manager.devices();check("two_devices",devices.size()==2,"count="+devices.size());
         if(devices.size()!=2){finishTest();return;}
-        main.postDelayed(this::openCycle,500);main.postDelayed(()->{if(!finished){check("timeout",false,"90s deadline");finishTest();}},90000);
+        main.postDelayed(this::openCycle,500);main.postDelayed(()->{if(!finished){check("timeout",false,"120s deadline");finishTest();}},120000);
     }
     void openCycle(){
         if(finished)return;
@@ -89,8 +89,11 @@ public final class DeviceProbeActivity extends Activity {
         cycle++;opened=stopped=0;measuring=false;cameras.clear();
         for(int i=0;i<2;i++){
             final int slot=i;first[i].set(0);last[i].set(0);
-            cameras.add(manager.open(devices.get(i),StreamConfig.defaults(),cycle==4?previews[i]:null,(camera,frame)->{
-                if(frame.pixels().remaining()!=640*480*3/2)badBuffers.incrementAndGet();
+            StreamConfig config=cycle>=5?new StreamConfig(640,480,30,UVCCamera.UVC_VS_FRAME_MJPEG,UVCCamera.PIXEL_FORMAT_GRAY8,0):StreamConfig.defaults();
+            boolean showPreview=cycle==4||cycle==6||cycle==7||(cycle>=8&&(cycle&1)==0);
+            cameras.add(manager.open(devices.get(i),config,showPreview?previews[i]:null,(cycle==7||(cycle>=8&&(cycle&1)==0))?null:cycle>=8?(camera,frame)->{}:(camera,frame)->{
+                int expected=camera.config.pixelFormat==UVCCamera.PIXEL_FORMAT_GRAY8?640*480:640*480*3/2;
+                if(frame.pixels().remaining()!=expected||!frame.pixels().isReadOnly()||!frame.pixels().isDirect())badBuffers.incrementAndGet();
                 first[slot].compareAndSet(0,frame.arrivalTimeNanos);last[slot].set(frame.arrivalTimeNanos);
                 if(frame.sequence==1){if(frame.copyLuma().length==640*480)grayChecks.incrementAndGet();else badBuffers.incrementAndGet();}
             }));
@@ -99,9 +102,9 @@ public final class DeviceProbeActivity extends Activity {
     void sampleAndClose(){
         if(finished)return;
         for(int i=0;i<2;i++){
-            UvcCameraManager.Camera camera=cameras.get(i);long count=camera.receivedFrames();long span=last[i].get()-first[i].get();double fps=span>0?(count-1)*1e9/span:0;
-            check("dual_cycle_"+cycle+"_camera_"+i,count>30&&fps>10,"vid="+devices.get(i).getVendorId()+", pid="+devices.get(i).getProductId()+", frames="+count+", fps="+fps+", preview="+(cycle==4?"texture":"none"));
-            if(cycle==4)check("preview_updates_camera_"+i,renderUpdates[i].get()>10,"updates="+renderUpdates[i].get());
+            UvcCameraManager.Camera camera=cameras.get(i);long count=camera.receivedFrames();long span=last[i].get()-first[i].get();double fps=cycle==7?count/8.0:span>0?(count-1)*1e9/span:0;
+            check("dual_cycle_"+cycle+"_camera_"+i,count>30&&fps>10,"vid="+devices.get(i).getVendorId()+", pid="+devices.get(i).getProductId()+", frames="+count+", fps="+fps+", preview="+((cycle==4||cycle==6||cycle==7)?"texture":"none"));
+            if(cycle==4||cycle==6||cycle==7)check("preview_updates_camera_"+i,renderUpdates[i].get()>10,"updates="+renderUpdates[i].get());
         }
         for(UvcCameraManager.Camera camera:cameras)camera.close();
     }
@@ -138,7 +141,9 @@ public final class DeviceProbeActivity extends Activity {
             boolean stable=warmFds!=null;
             for(String kind:new String[]{"usb","eventfd","eventpoll","socket","pipe"})stable&=value(current,kind)==value(warmFds,kind);
             check("usb_event_fd_stability",stable,"warm="+warmFds+", final_headless="+current);openCycle();
-        }else {check("frame_buffers",badBuffers.get()==0&&grayChecks.get()==8,"bad="+badBuffers+", gray_copies="+grayChecks);check("controls",controlChecks==8,"reads="+controlChecks);finishTest();}
+        }else if(cycle<7)openCycle();
+        else if(cycle==7){check("frame_buffers",badBuffers.get()==0&&grayChecks.get()==12,"bad="+badBuffers+", gray_copies="+grayChecks);check("controls",controlChecks==14,"reads="+controlChecks);openCycle();}
+        else if(cycle<17)openCycle();else finishTest();
     }
     int value(Map<String,Integer> map,String key){return map==null||!map.containsKey(key)?0:map.get(key);}
     int captureThreads(){

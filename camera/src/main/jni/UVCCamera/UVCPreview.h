@@ -1,3 +1,4 @@
+// Modified by FaceSDKPro, 2026-11-03; see UPSTREAM.md for changes.
 /*
  * UVCCamera
  * library and sample to access to UVC web camera on non-rooted Android device
@@ -27,6 +28,7 @@
 
 #include "libUVCCamera.h"
 #include <pthread.h>
+#include <atomic>
 #include <android/native_window.h>
 #include "objectarray.h"
 #include "ConvertHelper.h"
@@ -49,6 +51,7 @@ typedef int (*convFunc_t)(uvc_frame_t *in, uvc_frame_t *out);
 #define PIXEL_FORMAT_RGB565 5
 #define PIXEL_FORMAT_RGBX 6
 #define PIXEL_FORMAT_BGR 7
+#define PIXEL_FORMAT_GRAY8 8
 
 
 // for callback to Java object
@@ -60,7 +63,8 @@ class UVCPreview {
 private:
     uvc_device_handle_t *mDeviceHandle;
     ANativeWindow *mPreviewWindow;
-    volatile bool mIsRunning;
+    std::atomic<bool> mIsRunning;
+    std::atomic<uint64_t> mPreviewFrameCount{0};
 
     // request format
     int requestWidth, requestHeight, requestFormatType;
@@ -78,12 +82,14 @@ private:
     int previewFormat;
     size_t previewBytes;
 //
-    volatile bool mIsCapturing;
+    std::atomic<bool> mIsCapturing;
     ANativeWindow *mCaptureWindow;
     pthread_t capture_thread;
     pthread_mutex_t capture_mutex;
     pthread_cond_t capture_sync;
     uvc_frame_t *captureQueu;            // keep latest frame
+    bool mCaptureActive, mCaptureChanging; // protected by capture_mutex
+    MjpegDecoder previewDecoder, captureDecoder;
     jobject mFrameCallbackObj;
     convFunc_t mFrameCallbackFunc;
     Fields_iframecallback iframecallback_fields;
@@ -138,6 +144,9 @@ private:
     void do_capture_callback(JNIEnv *env, uvc_frame_t *frame);
 
     void callbackPixelFormatChanged();
+    void pauseCaptureLocked();
+    void resumeCaptureLocked();
+    uvc_frame_t *decodeCaptureFrame(uvc_frame_t *frame, bool gray);
 
 public:
     UVCPreview(uvc_device_handle_t *devh);
@@ -152,6 +161,7 @@ public:
 
     int setFrameCallback(JNIEnv *env, jobject frame_callback_obj, int pixel_format);
 
+    uint64_t previewFrameCount() const { return mPreviewFrameCount.load(std::memory_order_relaxed); }
     int startPreview();
 
     int stopPreview();

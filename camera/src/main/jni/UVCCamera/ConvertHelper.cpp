@@ -1,111 +1,51 @@
 // Modified by FaceSDKPro, 2026-11-03; see UPSTREAM.md for changes.
 #include "ConvertHelper.h"
 
-#define THROW(action, message) { \
-  LOGI("ERROR in line %d while %s:\n%s\n", __LINE__, action, message); \
-  retval = -1;  goto fail; \
+MjpegDecoder::~MjpegDecoder() {
+    if (handle) tjDestroy(handle);
 }
 
-#define THROW_TJ(action)  THROW(action, tjGetErrorStr2(tjInstance))
-
-#define THROW_UNIX(action)  THROW(action, strerror(errno))
-
-#define WARN_TJ(action)  { \
-  LOGW("ERROR in line %d while %s:\n%s\n", __LINE__, action, tjGetErrorStr2(tjInstance)); \
-}
-
-#define DEBUG_TJ(action)  { \
-  LOGD("ERROR in line %d while %s:\n%s\n", __LINE__, action, tjGetErrorStr2(tjInstance)); \
-}
-
-const char *subsampName[TJ_NUMSAMP] = {
-        "4:4:4", "4:2:2", "4:2:0", "Grayscale", "4:4:0", "4:1:1"
-};
-
-const char *colorspaceName[TJ_NUMCS] = {
-        "RGB", "YCbCr", "GRAY", "CMYK", "YCCK"
-};
-
-int convert_mjpeg_to_rgbx_tj(void *in, int inSize, void *out, int width, int height) {
-    int retval = UVC_SUCCESS;
-    int flags = 0;
-    int pixelFormat = TJPF_RGBX;
-    tjhandle tjInstance = NULL;
-    int inSubsamp, inColorspace;
-    int _width, _height;
-    const unsigned char *jpegBuf = (const unsigned char *) (in);
-    unsigned char *dstBuf = (unsigned char *) (out);
-
-    if ((tjInstance = tjInitDecompress()) == NULL) {
-        THROW_TJ("initializing decompressor");
-    }
-
-    if (tjDecompressHeader3(tjInstance, jpegBuf, inSize, &_width, &_height,
-                            &inSubsamp, &inColorspace) < 0) {
-        DEBUG_TJ("reading JPEG header failed");
-        retval = UVC_ERROR_INVALID_PARAM;
-        goto fail;
-    }
-
-    if (_width != width || _height != height) {
-        DEBUG_TJ("reading JPEG header error size");
-        retval = UVC_ERROR_INVALID_PARAM;
-        goto fail;
-    }
-
-//    LOGI("Image:  %d x %d pixels, %s subsampling, %s colorspace\n",
-//         out->width, out->height,
-//           subsampName[inSubsamp], colorspaceName[inColorspace]);
-
-    // will cause memory overflow
-//    if ((out->data = (unsigned char *) tjAlloc(tjBufSizeYUV2(width, padding, height, outSubsamp))) ==NULL)
-//        THROW_UNIX("allocating uncompressed image buffer");
-
-    if (tjDecompress2(tjInstance, jpegBuf, inSize, dstBuf, width, 0,
-                      height, pixelFormat, flags) < 0) {
-        DEBUG_TJ("decompressing JPEG image");
-        retval = UVC_ERROR_INVALID_PARAM;
-        goto fail;
-    }
-    tjDestroy(tjInstance);
-    tjInstance = NULL;
-    return retval;
-
-    fail:
-    tjDestroy(tjInstance);
-    tjInstance = NULL;
-    return retval;
-}
-
-/** @brief Convert an MJPEG frame to RGBX
- * @ingroup frame
- *
- * @param in MJPEG frame
- * @param out RGBX frame
- */
-int uvc_mjpeg2rgbx_tj(uvc_frame_t *in, uvc_frame_t *out) {
-    if (in->frame_format != UVC_FRAME_FORMAT_MJPEG)
+int MjpegDecoder::decode(uvc_frame_t *in, uvc_frame_t *out, bool gray) {
+    if (!in || !in->data || !in->data_bytes || in->frame_format != UVC_FRAME_FORMAT_MJPEG)
         return UVC_ERROR_INVALID_PARAM;
-
-    const int pixel_byte = 4;
-
-    if (uvc_ensure_frame_size(out, in->width * in->height * pixel_byte) < 0)
+    if (!handle) handle = tjInitDecompress();
+    if (!handle) return UVC_ERROR_NO_MEM;
+    int width, height, subsamp, colorspace;
+    if (tjDecompressHeader3(handle, static_cast<unsigned char *>(in->data), in->data_bytes,
+                            &width, &height, &subsamp, &colorspace) < 0
+        || width != in->width || height != in->height) {
+        tjDestroy(handle); handle = nullptr;
+        return UVC_ERROR_INVALID_PARAM;
+    }
+    const int bytes = gray ? 1 : 4;
+    if (uvc_ensure_frame_size(out, static_cast<size_t>(width) * height * bytes) < 0)
         return UVC_ERROR_NO_MEM;
-
-    out->width = in->width;
-    out->height = in->height;
-    out->frame_format = UVC_FRAME_FORMAT_RGBX;
-    out->step = in->width * pixel_byte;
-    out->sequence = in->sequence;
-    out->capture_time = in->capture_time;
-    out->capture_time_finished = in->capture_time_finished;
-    out->source = in->source;
-
-    return convert_mjpeg_to_rgbx_tj(in->data, in->data_bytes, out->data, out->width, out->height);
+    if (tjDecompress2(handle, static_cast<unsigned char *>(in->data), in->data_bytes,
+                      static_cast<unsigned char *>(out->data), width, width * bytes, height,
+                      gray ? TJPF_GRAY : TJPF_RGBX, 0) < 0) {
+        // A malformed camera frame must not poison subsequent frames on the reused instance.
+        tjDestroy(handle); handle = nullptr;
+        return UVC_ERROR_INVALID_PARAM;
+    }
+    out->width = width; out->height = height;
+    out->frame_format = gray ? UVC_FRAME_FORMAT_GRAY8 : UVC_FRAME_FORMAT_RGBX;
+    out->step = width * bytes;
+    out->sequence = in->sequence; out->capture_time = in->capture_time;
+    out->capture_time_finished = in->capture_time_finished; out->source = in->source;
+    return UVC_SUCCESS;
 }
 
-
-
+int uvc_rgbx_to_gray8(uvc_frame_t *in, uvc_frame_t *out) {
+    if (in->frame_format != UVC_FRAME_FORMAT_RGBX) return UVC_ERROR_INVALID_PARAM;
+    if (uvc_ensure_frame_size(out, static_cast<size_t>(in->width) * in->height) < 0)
+        return UVC_ERROR_NO_MEM;
+    out->width = in->width; out->height = in->height;
+    out->frame_format = UVC_FRAME_FORMAT_GRAY8; out->step = in->width;
+    out->sequence = in->sequence; out->capture_time = in->capture_time;
+    out->capture_time_finished = in->capture_time_finished; out->source = in->source;
+    return libyuv::ABGRToJ400(static_cast<uint8_t *>(in->data), in->step,
+                              static_cast<uint8_t *>(out->data), out->step, out->width, out->height);
+}
 
 /** @brief Convert a frame from RGBX8888 to YUYV
 * @ingroup frame
@@ -114,7 +54,6 @@ int uvc_mjpeg2rgbx_tj(uvc_frame_t *in, uvc_frame_t *out) {
 */
 int uvc_rgbx_to_yuyv(uvc_frame_t *in, uvc_frame_t *out) {
     uint8_t *in_data = (uint8_t *) in->data;
-    uint8_t *out_data = (uint8_t *) out->data;
 
     if (in->frame_format != UVC_FRAME_FORMAT_RGBX)
         return UVC_ERROR_INVALID_PARAM;
@@ -131,6 +70,7 @@ int uvc_rgbx_to_yuyv(uvc_frame_t *in, uvc_frame_t *out) {
     out->capture_time = in->capture_time;
     out->source = in->source;
 
+    uint8_t *out_data = (uint8_t *) out->data;
     int ret = UVC_SUCCESS;
 
     ret = libyuv::ABGRToYUY2(in_data, in->step,
@@ -146,7 +86,6 @@ int uvc_rgbx_to_yuyv(uvc_frame_t *in, uvc_frame_t *out) {
 */
  int uvc_rgbx_to_nv12(uvc_frame_t *in, uvc_frame_t *out) {
     uint8_t *in_data = (uint8_t *) in->data;
-    uint8_t *out_data = (uint8_t *) out->data;
 
     if (in->frame_format != UVC_FRAME_FORMAT_RGBX)
         return UVC_ERROR_INVALID_PARAM;
@@ -163,6 +102,7 @@ int uvc_rgbx_to_yuyv(uvc_frame_t *in, uvc_frame_t *out) {
     out->capture_time = in->capture_time;
     out->source = in->source;
 
+    uint8_t *out_data = (uint8_t *) out->data;
     int ret = UVC_SUCCESS;
 
     ret = libyuv::ABGRToNV12(in_data, in->step, out_data, out->step,
@@ -179,7 +119,6 @@ int uvc_rgbx_to_yuyv(uvc_frame_t *in, uvc_frame_t *out) {
 */
  int uvc_rgbx_to_nv21(uvc_frame_t *in, uvc_frame_t *out) {
     uint8_t *in_data = (uint8_t *) in->data;
-    uint8_t *out_data = (uint8_t *) out->data;
 
     if (in->frame_format != UVC_FRAME_FORMAT_RGBX)
         return UVC_ERROR_INVALID_PARAM;
@@ -196,6 +135,7 @@ int uvc_rgbx_to_yuyv(uvc_frame_t *in, uvc_frame_t *out) {
     out->capture_time = in->capture_time;
     out->source = in->source;
 
+    uint8_t *out_data = (uint8_t *) out->data;
     int ret = UVC_SUCCESS;
 
     ret = libyuv::ABGRToNV21(in_data, in->step, out_data, out->step,
@@ -212,7 +152,6 @@ int uvc_rgbx_to_yuyv(uvc_frame_t *in, uvc_frame_t *out) {
 */
  int uvc_rgbx_to_rgb(uvc_frame_t *in, uvc_frame_t *out) {
     uint8_t *in_data = (uint8_t *) in->data;
-    uint8_t *out_data = (uint8_t *) out->data;
 
     if (in->frame_format != UVC_FRAME_FORMAT_RGBX)
         return UVC_ERROR_INVALID_PARAM;
@@ -229,6 +168,7 @@ int uvc_rgbx_to_yuyv(uvc_frame_t *in, uvc_frame_t *out) {
     out->capture_time = in->capture_time;
     out->source = in->source;
 
+    uint8_t *out_data = (uint8_t *) out->data;
     int ret = UVC_SUCCESS;
 
     ret = libyuv::ABGRToRAW(in_data, in->step, out_data, out->step,
@@ -244,7 +184,6 @@ int uvc_rgbx_to_yuyv(uvc_frame_t *in, uvc_frame_t *out) {
 */
  int uvc_rgbx_to_rgb565(uvc_frame_t *in, uvc_frame_t *out) {
     uint8_t *in_data = (uint8_t *) in->data;
-    uint8_t *out_data = (uint8_t *) out->data;
 
     if (in->frame_format != UVC_FRAME_FORMAT_RGBX)
         return UVC_ERROR_INVALID_PARAM;
@@ -261,6 +200,7 @@ int uvc_rgbx_to_yuyv(uvc_frame_t *in, uvc_frame_t *out) {
     out->capture_time = in->capture_time;
     out->source = in->source;
 
+    uint8_t *out_data = (uint8_t *) out->data;
     int ret = UVC_SUCCESS;
 
     ret = libyuv::ABGRToRGB565(in_data, in->step, out_data, out->step,
@@ -276,7 +216,6 @@ int uvc_rgbx_to_yuyv(uvc_frame_t *in, uvc_frame_t *out) {
 */
  int uvc_rgbx_to_bgr(uvc_frame_t *in, uvc_frame_t *out) {
     uint8_t *in_data = (uint8_t *) in->data;
-    uint8_t *out_data = (uint8_t *) out->data;
 
     if (in->frame_format != UVC_FRAME_FORMAT_RGBX)
         return UVC_ERROR_INVALID_PARAM;
@@ -293,6 +232,7 @@ int uvc_rgbx_to_yuyv(uvc_frame_t *in, uvc_frame_t *out) {
     out->capture_time = in->capture_time;
     out->source = in->source;
 
+    uint8_t *out_data = (uint8_t *) out->data;
     int ret = UVC_SUCCESS;
 
     ret = libyuv::ABGRToRGB24(in_data, in->step, out_data, out->step,

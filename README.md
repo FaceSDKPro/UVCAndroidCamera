@@ -73,7 +73,7 @@ manager.close();
 `StreamConfig.defaults()` explicitly selects **640×480, MJPEG, 30 FPS and NV21 callbacks**.
 Unsupported resolutions or frame rates fail instead of silently selecting a larger mode.
 Device-provided YUYV input can also be selected.
-Callbacks support YUYV, NV12, NV21, RGB, RGB565, RGBX and BGR. RAW means decoded YUYV here,
+Callbacks support YUYV, NV12, NV21, RGB, RGB565, RGBX, BGR and GRAY8. RAW means decoded YUYV here,
 not compressed MJPEG bytes. Frames are not automatically rotated, mirrored or processed for face detection.
 
 State callbacks run on the main thread. Each camera's frame callbacks run on its native callback thread,
@@ -87,9 +87,32 @@ Multiple VideoStreaming interfaces within a single USB device require additional
 Attach/detach events notify the host. Detaching closes the corresponding session; after reattachment, the host selects and reopens the appropriate role.
 IR face boxes, cross-camera face association and liveness algorithms belong to the upper SDK layer.
 
+## Performance and lower-power integration
+
+MJPEG decoders are reused per decoding thread. Both input and callback queues retain only the latest frame.
+Headless sessions decode when the consumer is ready, so a busy SDK does not force obsolete JPEGs through RGB conversion.
+Preview-only sessions omit the pixel callback thread and use a native preview counter for startup checks.
+Native callback references and per-session delayed tasks are released/cancelled at close.
+
+For IR analysis without a preview, explicitly select `UVCCamera.PIXEL_FORMAT_GRAY8` in `StreamConfig`.
+MJPEG is then decoded directly into packed, full-range grayscale (`width * height` bytes), without RGBX or chroma output.
+With a preview, grayscale is derived from the RGBX frame already needed for display.
+YUYV-to-GRAY8 preserves the camera's luma values. Existing NV12/NV21 color conversion remains unchanged;
+GRAY8 JPEG values can differ from the Y plane obtained through the previous RGB-to-NV21 conversion.
+Use `frame.luma()` for a borrowed read-only view, or `copyLumaTo(byte[], offset)` / `copyPixelsTo(byte[], offset)`
+with caller-owned reusable arrays. All borrowed views expire when the callback returns.
+
+`UvcCameraManager` uses USB broadcasts plus a five-second fallback device scan.
+The overload `new UvcCameraManager(context, listener, devicePollMillis)` accepts `0` for broadcasts plus the initial scan,
+or an interval of at least 1000 ms. Disabling polling requires reliable attach broadcasts on the target device;
+when broadcasts are missing, discovery latency follows the configured interval.
+Choose a supported capture resolution/FPS for the application and close sessions when unused.
+See [PERFORMANCE.md](PERFORMANCE.md) for implementation details, the measurement procedure and current evidence limits.
+
 ## Sample and device validation
 
 `sample` provides two TextureViews, device selection, three resolution presets, frame counters and brightness controls.
+The sample uses preview-only sessions by default; add a FrameListener as shown above when consuming pixels.
 `deviceTest` is a separate acceptance build using Release optimization and JNI keep rules, signed with the local Debug identity.
 Its diagnostic Activity is excluded from the production `release` build.
 

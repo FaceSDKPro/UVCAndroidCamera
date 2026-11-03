@@ -1,3 +1,4 @@
+// Modified by FaceSDKPro, 2026-11-03; see UPSTREAM.md for changes.
 /*
  * UVCCamera
  * library and sample to access to UVC web camera on non-rooted Android device
@@ -37,6 +38,7 @@
 #include <linux/time.h>
 #include <unistd.h>
 #include <string.h>
+#include "utilbase.h" // Declare VM helpers outside libuvc's extern-C headers.
 #include "UVCCamera.h"
 #include "Parameters.h"
 #include "libuvc_internal.h"
@@ -132,13 +134,23 @@ int UVCCamera::release() {
     stopPreview();
     if (LIKELY(mDeviceHandle)) {
         MARK("close uvc camera");
-        SAFE_DELETE(mStatusCallback);
-        SAFE_DELETE(mButtonCallback);
         SAFE_DELETE(mPreview);
         SAFE_DELETE(mControl);
         // close camera
         uvc_close(mDeviceHandle);
         mDeviceHandle = NULL;
+        // uvc_close joins this camera's USB event thread. Only then can callback
+        // targets and their JNI refs be released without racing a status event.
+        JNIEnv *env = getEnv();
+        bool attached = false;
+        if (!env && getVM()->AttachCurrentThread(&env, NULL) == JNI_OK) attached = true;
+        if (env) {
+            if (mStatusCallback) mStatusCallback->setCallback(env, NULL);
+            if (mButtonCallback) mButtonCallback->setCallback(env, NULL);
+        }
+        if (attached) getVM()->DetachCurrentThread();
+        SAFE_DELETE(mStatusCallback);
+        SAFE_DELETE(mButtonCallback);
     }
 //    if (mFd) {
 //        close(mFd);
@@ -199,6 +211,10 @@ int UVCCamera::setFrameCallback(JNIEnv *env, jobject frame_callback_obj, int pix
         result = mPreview->setFrameCallback(env, frame_callback_obj, pixel_format);
     }
     RETURN(result, int);
+}
+
+uint64_t UVCCamera::previewFrameCount() const {
+    return mPreview ? mPreview->previewFrameCount() : 0;
 }
 
 int UVCCamera::startPreview() {

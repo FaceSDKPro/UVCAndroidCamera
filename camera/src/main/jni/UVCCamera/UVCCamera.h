@@ -1,3 +1,4 @@
+// Modified by FaceSDKPro, 2026-11-03; see UPSTREAM.md for changes.
 /*
  * UVCCamera
  * library and sample to access to UVC web camera on non-rooted Android device
@@ -68,6 +69,7 @@ public:
 
     int setFrameCallback(JNIEnv *env, jobject frame_callback_obj, int pixel_format);
 
+    uint64_t previewFrameCount() const;
     int startPreview();
 
     int stopPreview();

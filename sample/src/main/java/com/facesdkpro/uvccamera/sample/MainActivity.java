@@ -163,9 +163,12 @@ public final class MainActivity extends Activity {
         int width = mode == 0 ? 640 : mode == 1 ? 1280 : 1920, height = mode == 0 ? 480 : mode == 1 ? 720 : 1080;
         StreamConfig config = new StreamConfig(width, height, 30, UVCCamera.UVC_VS_FRAME_MJPEG, UVCCamera.PIXEL_FORMAT_NV21, 0);
         int[] chosen = {a, b};
-        for (int i = 0; i < 2; i++) { fitPreview(i); cameras[i] = manager.open(available.get(chosen[i]), config, surfaces[i], (camera, frame) -> {
-            // Consume borrowed pixels here. Use copyPixels()/copyLuma() only when retaining data asynchronously.
-        }); }
+        // This screen displays previews and counters only; no unused NV21 pixel conversion.
+        // Supply a FrameListener when integrating an actual analysis consumer (see README).
+        for (int i = 0; i < 2; i++) {
+            fitPreview(i);
+            cameras[i] = manager.open(available.get(chosen[i]), config, surfaces[i], null);
+        }
         status.setText("正在请求设备权限…");
     }
 

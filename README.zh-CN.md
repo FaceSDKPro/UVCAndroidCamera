@@ -67,7 +67,7 @@ manager.close();
 
 `StreamConfig.defaults()` 明确选择 **640×480、MJPEG、30 FPS、NV21 回调**。
 不支持的分辨率/帧率会失败，不会静默改为更大的模式。输入格式也可选择设备提供的 YUYV。
-回调支持 YUYV、NV12、NV21、RGB、RGB565、RGBX、BGR；RAW 在此表示解码后的 YUYV，
+回调支持 YUYV、NV12、NV21、RGB、RGB565、RGBX、BGR、GRAY8；RAW 在此表示解码后的 YUYV，
 不是压缩 MJPEG 字节。像素帧不自动旋转、镜像或做人脸检测。
 
 状态回调在主线程；每路帧回调在该摄像头的原生线程，采用只保留最新帧的队列。
@@ -78,9 +78,31 @@ manager.close();
 需要额外适配，不在当前多摄契约内。插拔会通知宿主；拔出关闭对应会话，重新插入后由宿主按角色重新选择。
 IR 人脸框、双路同人关联及活体算法由上层 SDK 管理。
 
+## 性能与低功耗接入
+
+每个解码线程复用 MJPEG 解码器；输入队列和回调队列各只保留最新帧。
+无预览模式等消费者就绪后才解码，SDK 忙时不再将过时 JPEG 解码为 RGB。
+纯预览模式省去像素回调线程，用原生预览计数检查启动状态。
+关闭时释放原生回调引用，取消所属会话的延时任务。
+
+IR 不需要预览时，可在 `StreamConfig` 中明确选择 `UVCCamera.PIXEL_FORMAT_GRAY8`。
+MJPEG 会直接解码为 `width * height` 字节的全范围灰度，不生成 RGBX 或色度数据；
+有预览时从显示所需的 RGBX 帧生成灰度。YUYV 转 GRAY8 保留摄像头原始亮度值。
+现有 NV12/NV21 颜色转换保持不变；JPEG 直接灰度与原来经 RGB 转 NV21 再取 Y 的数值可能不同。
+使用 `frame.luma()` 借用只读亮度视图，或用 `copyLumaTo(byte[], offset)`、`copyPixelsTo(byte[], offset)`
+复制到宿主复用的数组。借用视图均只在回调期间有效。
+
+`UvcCameraManager` 使用 USB 广播与五秒一次的兜底设备扫描。
+构造重载 `new UvcCameraManager(context, listener, devicePollMillis)` 接受 `0`（仅广播及首次扫描），
+或至少 1000 毫秒的扫描间隔。关闭轮询前需确认目标设备能可靠发送插入广播；
+缺少广播时，发现延迟取决于配置的轮询间隔。
+按业务选择设备支持的采集分辨率和帧率，不使用时关闭会话。
+实现和测量说明见 [PERFORMANCE.zh-CN.md](PERFORMANCE.zh-CN.md)。
+
 ## 示例与设备验收
 
 `sample` 提供两个 TextureView、设备选择、三档分辨率、帧计数及亮度控制。
+示例默认仅预览，不创建空帧回调；需要像素消费时按前文接入示例添加 FrameListener。
 `deviceTest` 是使用 Release 优化和 JNI 保留规则、以本机 Debug 身份签名的独立验收构建；
 其中的诊断 Activity 不进入正式 `release`。
 
