@@ -1,0 +1,12 @@
+pluginManagement {
+    resolutionStrategy { eachPlugin {
+        if (requested.id.id.startsWith('com.android.')) useModule("com.android.tools.build:gradle:${requested.version}")
+    } }
+    repositories {
+        if (providers.gradleProperty('googleMavenMirror').isPresent()) maven { url providers.gradleProperty('googleMavenMirror').get() }
+        google(); mavenCentral(); gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement { repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories { google(); mavenCentral() } }
+rootProject.name = 'UVCAndroidCamera'
+include ':camera', ':sample'

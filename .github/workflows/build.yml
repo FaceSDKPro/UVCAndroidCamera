@@ -1,0 +1,26 @@
+name: Build and audit
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@7296c772c13d12d9871528814b51fb2143c138ef # v6.4.1
+      - name: Install Android platform and NDK
+        run: sdkmanager 'platforms;android-36' 'ndk;27.0.12077973'
+      - name: Build and test
+        run: ./gradlew :camera:assembleRelease :camera:testReleaseUnitTest :camera:lintRelease :sample:assembleRelease :sample:assembleDeviceTest :sample:lintRelease
+      - name: Audit source and AAR
+        run: |
+          python3 tools/audit_source.py
+          python3 tools/check_artifact.py camera/build/outputs/aar/camera-release.aar
