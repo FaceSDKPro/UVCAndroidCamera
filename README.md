@@ -27,18 +27,20 @@ Pairing two independent streams is software time association, not proof of hardw
 
 ## SDK and Demo delivery
 
-The local SDK version is **0.2.0**, prepared for HelloFace SDK integrators. HelloFace has not been modified or linked.
+The local SDK version is **0.3.0**, prepared for HelloFace SDK integrators. HelloFace has not been modified or linked.
 
 ```sh
 ./gradlew prepareSdk
 ```
 
-Local builds, unit tests, Lint and artifact audits produce `build/sdk/uvc-android-camera-0.2.0.zip`:
+Local builds, unit tests, Lint and artifact audits produce `build/sdk/uvc-android-camera-0.3.0.zip`:
 an AAR, sources JAR, local Maven repository, installable Demo, standalone binary-consuming Demo source and checksums.
 No remote publication or CI/CD is executed. See [SDK integration](docs/SDK_INTEGRATION.md) for dependencies and full examples.
 
 - `DualCameraSession`: RGB NV21 + IR GRAY8, RGB preview, bounded buffers and serial frame-pair delivery.
 - `Nv21Planes`: direct Y/U/V buffer views for an algorithm SDK, without a Bitmap/I420 round trip.
+- Independent RGB/IR capture resolution, FPS and clockwise 0/90/180/270-degree rotation; the Demo applies changes with a controlled restart.
+- `FrameTransforms` rotates NV21/NV12/GRAY8 into existing pool buffers; `PreviewTransform` provides aspect-preserving TextureView rotation.
 - Failure or detach on either camera ends both streams. Retry explicitly after cleanup; there is no single-camera fallback.
 - Pairing uses callback arrival times: software association proves neither simultaneous exposure, face correspondence nor liveness.
 
@@ -57,7 +59,7 @@ The capture pipeline reduces decoding, memory copies and thread handoffs for con
 - **Direct YUYV to NV12/NV21**: ARM NEON preserves source luma without an RGBX round trip; the conversion kernel needs no scratch buffer.
 - **Direct MJPEG preview decoding into the Surface**: uses its actual stride, removing the intermediate RGBX frame and full-frame copy in preview-only mode.
 - **One fewer headless thread handoff**: decode when the consumer is ready and retain only the latest input instead of processing stale JPEGs.
-- **Lower ongoing overhead**: reuse decoders and frame buffers, share the USB/command worker, retain native SIMD and exclude unused encoding, scaling and rotation modules.
+- **Lower ongoing overhead**: reuse decoders and frame buffers, share the USB/command worker, retain native SIMD and exclude unused encoding/scaling modules. Pixel rotation uses a separate small native kernel.
 
 The capture-path version `c0d095c` was measured on a Xiaomi 24091RPADC (Android 16) with RGB/IR cameras: dual 640×480 YUYV capture requested at 15 FPS per camera and fixed 10 ms exposure reduced
 **mean process CPU time per delivered frame from 28.30 ms to 25.46 ms, about 10%**, with slightly higher achieved throughput.
@@ -68,9 +70,9 @@ Current NDK 29 build sizes:
 
 | Item | Bytes |
 |---|---:|
-| 20 `.so` libraries across four ABIs, uncompressed total | 1,888,028 |
-| 10 `.so` libraries across the two ARM ABIs, uncompressed total | 866,444 |
-| SDK 0.2.0 four-ABI Release AAR, ZIP archive | 919,593 |
+| 20 `.so` libraries across four ABIs, uncompressed total | 1,893,020 |
+| 10 `.so` libraries across the two ARM ABIs, uncompressed total | 868,816 |
+| SDK 0.3.0 four-ABI Release AAR, ZIP archive | 926,034 |
 
 Per-library budgets and the **1,900,000-byte** native payload ceiling remain enforced.
 All 20 libraries pass **16 KB ELF alignment**, and the sample APKs pass **16 KB ZIP alignment**.
@@ -110,7 +112,7 @@ Build outputs stay in each module's `build/` directory. AARs, APKs, native binar
 ## Integration
 
 Add the `camera` module to your project, or build and consume the AAR locally.
-`com.facesdkpro:uvc-android-camera:0.2.0` is this project's local publication coordinate; it has not been published to Maven Central.
+`com.facesdkpro:uvc-android-camera:0.3.0` is this project's local publication coordinate; it has not been published to Maven Central.
 To publish to your local Maven repository, run `./gradlew :camera:publishReleasePublicationToMavenLocal`.
 
 ```java
@@ -146,7 +148,17 @@ manager.close();
 Unsupported resolutions or frame rates fail instead of silently selecting a larger mode.
 Device-provided YUYV input can also be selected.
 Callbacks support YUYV, NV12, NV21, RGB, RGB565, RGBX, BGR and GRAY8. RAW means decoded YUYV here,
-not compressed MJPEG bytes. Frames are not automatically rotated, mirrored or processed for face detection.
+not compressed MJPEG bytes. Low-level `UvcCameraManager` callbacks retain capture orientation; paired `FramePair` pixels
+are physically rotated as configured, swapping width/height for quarter turns. Neither API automatically mirrors or detects faces.
+
+### Resolution, frame rate and rotation
+
+`StreamConfig(width, height, fps, frameType, pixelFormat, quirks)` selects each exact UVC capture request.
+`DualCameraConfig.withRotations(rgbDegrees, irDegrees)` sets independent pixel rotations for paired delivery.
+Surface previews retain capture orientation; apply `PreviewTransform.fitCenter(...)` / `centerCrop(...)` to the host TextureView.
+Close the previous session and wait for `onClosed` before opening with new settings; the Demo's apply/restart action does this.
+Unsupported resolution/transport/FPS combinations fail explicitly without silent fallback. Requested capture FPS, observed FPS and pair-delivery limits are separate.
+See [SDK integration](docs/SDK_INTEGRATION.md) for full calls and output-coordinate conventions.
 
 State callbacks run on the main thread. Each camera's frame callbacks run on its native callback thread,
 using a queue that retains only the latest frame.
@@ -180,9 +192,10 @@ On 2026-11-04, the tablet and RGB/IR cameras above passed 59 device checks, 24 d
 Another 120 YUYV numerical combinations and six JPEG stride/error-recovery groups passed. All 59 resource checks passed again after performance measurements.
 Subsequent global review adds JNI reentrancy/reference, allocation-failure, USB-submission and RGBX stride-boundary checks. See [VALIDATION.md](VALIDATION.md) for the complete evidence scope (Chinese).
 
-`sample` opens the SDK Demo by default: explicit RGB/IR selection, RGB preview, NV21/GRAY8 counters and pairing statistics, with headless IR.
+`sample` opens the SDK Demo by default: explicit RGB/IR selection, independent resolution, capture FPS, MJPEG/YUYV and rotation settings,
+RGB preview, rotated NV21/GRAY8 dimensions, observed capture FPS and pairing statistics, with headless IR. Settings scroll independently while preview remains visible.
 `SdkDemoActivity.consumePair()` is the synchronous algorithm integration point; it validates pixels without simulating recognition or liveness.
-The device preview/control screen retains two TextureViews, device selection, three resolution presets and brightness controls; that screen is preview-only.
+The device preview/control screen retains two TextureViews, device selection, independent resolution/FPS/preview rotation and brightness controls; that screen is preview-only.
 The installable `demo` build uses the local standard debug identity and R8, without diagnostic Activities.
 The device preview/control screen uses preview-only sessions; the SDK Demo consumes actual frame pairs.
 `deviceTest` is a separate acceptance build using Release optimization and JNI keep rules, signed with the local Debug identity.

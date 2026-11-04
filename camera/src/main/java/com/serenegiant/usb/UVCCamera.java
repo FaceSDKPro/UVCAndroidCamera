@@ -46,6 +46,8 @@ import com.serenegiant.usb.USBMonitor.UsbControlBlock;
 import com.serenegiant.uvccamera.BuildConfig;
 
 public class UVCCamera {
+    /** Initialize the shared native runtime for SDK pixel transforms without opening a USB device. */
+    public static void ensureNativeLoaded() {}
     private static final boolean DEBUG = BuildConfig.DEBUG;    // TODO set false when releasing
     private static final String TAG = UVCCamera.class.getSimpleName();
 

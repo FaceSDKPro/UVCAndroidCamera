@@ -6,9 +6,16 @@ import com.serenegiant.usb.UVCCamera;
 public final class DualCameraConfig {
     public final StreamConfig rgb, ir;
     public final int maxPairSkewMillis, maxFrameAgeMillis, maxPairsPerSecond;
+    public final int rgbRotationDegrees, irRotationDegrees;
 
     public DualCameraConfig(StreamConfig rgb, StreamConfig ir, int maxPairSkewMillis,
             int maxFrameAgeMillis, int maxPairsPerSecond) {
+        this(rgb, ir, maxPairSkewMillis, maxFrameAgeMillis, maxPairsPerSecond, 0, 0);
+    }
+
+    public DualCameraConfig(StreamConfig rgb, StreamConfig ir, int maxPairSkewMillis,
+            int maxFrameAgeMillis, int maxPairsPerSecond, int rgbRotationDegrees, int irRotationDegrees) {
+        FrameTransforms.validateRotation(rgbRotationDegrees); FrameTransforms.validateRotation(irRotationDegrees);
         if (rgb == null || ir == null) throw new NullPointerException("stream config");
         if (rgb.pixelFormat != UVCCamera.PIXEL_FORMAT_NV21
                 || ir.pixelFormat != UVCCamera.PIXEL_FORMAT_GRAY8) {
@@ -25,6 +32,12 @@ public final class DualCameraConfig {
         }
         this.rgb = rgb; this.ir = ir; this.maxPairSkewMillis = maxPairSkewMillis;
         this.maxFrameAgeMillis = maxFrameAgeMillis; this.maxPairsPerSecond = maxPairsPerSecond;
+        this.rgbRotationDegrees = rgbRotationDegrees; this.irRotationDegrees = irRotationDegrees;
+    }
+
+    /** Return an immutable copy with independent clockwise pixel rotations. Reopen the session to apply. */
+    public DualCameraConfig withRotations(int rgbDegrees, int irDegrees) {
+        return new DualCameraConfig(rgb, ir, maxPairSkewMillis, maxFrameAgeMillis, maxPairsPerSecond, rgbDegrees, irDegrees);
     }
 
     /** 640x480 MJPEG, capture 30 FPS, deliver at most 15 pairs/s, 50 ms arrival skew, 150 ms age.

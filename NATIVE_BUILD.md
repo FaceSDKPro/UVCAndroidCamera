@@ -82,3 +82,17 @@ The NDK 29 size table above records commit `2159e68`. Direct YUYV conversion, di
 The subsequent lifecycle/buffer/error-path fixes produce **1,888,028 native bytes across four ABIs**, **866,444 across the two ARM ABIs**, and a **902,427-byte four-ABI AAR**. Budgets, the 133-symbol boundary per ABI, NDK 29 and 16 KB alignment/hardening remain unchanged. The `c0d095c` CPU comparison remains a historical measurement of that version; this round does not claim a new CPU/power result.
 
 后续生命周期、缓冲区和错误处理修复的四 ABI 原生字节为 **1,888,028**，ARM 双 ABI **866,444**，四 ABI AAR **902,427**。没有放宽体积或导出门禁，保留原 NDK 29 与 16 KB 对齐/安全参数；先前 CPU 对照对应 `c0d095c`，不作为本轮候选新测量结果。
+
+## SDK 0.3.0 pixel rotation
+
+NV21/NV12/GRAY8 rotation uses a small shared tiled kernel in `FrameRotation.h`, registered through JNI without adding public native exports.
+The paired API writes into its existing destination pool; zero rotation keeps the original fast copy path. Preview uses the host TextureView transform.
+The shared kernel is kept out of line with Clang's `minsize` attribute to avoid duplicate luma/chroma specializations; SIMD codec settings and the rest of the `-O3` / ThinLTO build remain unchanged.
+Four-ABI native bytes are **1,893,020**, two-ARM-ABI bytes **868,816**: **4,992 bytes** above the preceding capture SDK.
+All existing library/total budgets, 133 exported symbols per ABI, NDK 29 and 16 KB ELF/APK alignment gates remain unchanged.
+This is not an electrical-power comparison.
+
+0.3.0 使用小型分块原生内核旋转 NV21/NV12/GRAY8，直接写入原有配对池；0 度保留快速复制，预览由 TextureView 变换处理。
+旋转内核单独使用 Clang `minsize` 并禁止内联，避免为 Y/UV 调用点重复展开；其余 `-O3`、ThinLTO 和编解码 SIMD 配置保持原样。
+四 ABI 原生总量 **1,893,020 字节**、ARM 双 ABI **868,816 字节**，比上一采集 SDK 增加 **4,992 字节**。
+未放宽任一体积或导出门禁，继续核对每 ABI 133 个导出入口、NDK 29 和 16 KB 对齐；不据此宣称整机节电比例。

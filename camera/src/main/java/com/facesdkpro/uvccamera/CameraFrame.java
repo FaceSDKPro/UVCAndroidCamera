@@ -9,12 +9,20 @@ import java.nio.ByteBuffer;
  */
 public final class CameraFrame {
     public final int width, height, pixelFormat;
+    /** Capture geometry and clockwise rotation already applied to pixels. Never rotate them again by this amount. */
+    public final int sourceWidth, sourceHeight, appliedRotationDegrees;
     public final long sequence, arrivalTimeNanos;
     private final ByteBuffer pixels;
 
     CameraFrame(ByteBuffer pixels, StreamConfig config, long sequence, long arrivalTimeNanos) {
+        this(pixels, config, 0, sequence, arrivalTimeNanos);
+    }
+
+    CameraFrame(ByteBuffer pixels, StreamConfig config, int rotationDegrees, long sequence, long arrivalTimeNanos) {
         this.pixels = pixels; // JNI creates a separate borrowed view for each callback.
-        this.width = config.width; this.height = config.height; this.pixelFormat = config.pixelFormat;
+        this.sourceWidth = config.width; this.sourceHeight = config.height; this.appliedRotationDegrees = rotationDegrees;
+        this.width = FrameTransforms.outputWidth(config.width, config.height, rotationDegrees);
+        this.height = FrameTransforms.outputHeight(config.width, config.height, rotationDegrees); this.pixelFormat = config.pixelFormat;
         this.sequence = sequence; this.arrivalTimeNanos = arrivalTimeNanos;
     }
 

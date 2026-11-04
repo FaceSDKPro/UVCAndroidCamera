@@ -16,6 +16,8 @@ import android.util.Log;
 import com.facesdkpro.uvccamera.DualCameraConfig;
 import com.facesdkpro.uvccamera.DualCameraSession;
 import com.facesdkpro.uvccamera.FramePair;
+import com.facesdkpro.uvccamera.FrameTransforms;
+import com.facesdkpro.uvccamera.PreviewTransform;
 import com.facesdkpro.uvccamera.StreamConfig;
 import com.serenegiant.usb.UVCCamera;
 import java.io.File;
@@ -34,6 +36,7 @@ public final class DualSessionProbeActivity extends Activity {
     private UsbDevice rgb, ir;
     private DualCameraSession session;
     private Surface preview;
+    private TextureView previewView;
     private SurfaceTexture retiredTexture;
     private TextView text;
     private int cycle, errors, controls;
@@ -44,7 +47,7 @@ public final class DualSessionProbeActivity extends Activity {
         super.onCreate(state); getWindow().addFlags(128);
         LinearLayout root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL);
         text = new TextView(this); text.setText("双目 SDK 接口验收，不保存摄像头图像"); root.addView(text);
-        TextureView view = new TextureView(this); root.addView(view, new LinearLayout.LayoutParams(-1, 0, 1));
+        TextureView view = new TextureView(this); previewView = view; view.setOpaque(false); root.addView(view, new LinearLayout.LayoutParams(-1, 0, 1));
         view.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
             public void onSurfaceTextureAvailable(SurfaceTexture texture, int width, int height) { preview = new Surface(texture); }
             public void onSurfaceTextureSizeChanged(SurfaceTexture texture, int width, int height) {}
@@ -54,6 +57,7 @@ public final class DualSessionProbeActivity extends Activity {
             }
             public void onSurfaceTextureUpdated(SurfaceTexture texture) { updates.incrementAndGet(); }
         }); setContentView(root);
+        rotationFixture();
         List<UsbDevice> devices = DualCameraSession.devices(this);
         for (UsbDevice device : devices) {
             if (device.getVendorId() == 0x1187 && device.getProductId() == 0x3a49) rgb = device;
@@ -78,8 +82,23 @@ public final class DualSessionProbeActivity extends Activity {
         DualCameraConfig config = DualCameraConfig.defaults();
         if (cycle == 5) config = new DualCameraConfig(new StreamConfig(640, 480, 120,
                 UVCCamera.UVC_VS_FRAME_MJPEG, UVCCamera.PIXEL_FORMAT_NV21, 0), config.ir, 50, 150, 15);
+        if (cycle == 8) config = config.withRotations(90,270);
+        if (cycle == 9) config = new DualCameraConfig(
+                new StreamConfig(640,480,15,UVCCamera.UVC_VS_FRAME_UNCOMPRESSED,UVCCamera.PIXEL_FORMAT_NV21,0),
+                new StreamConfig(640,480,15,UVCCamera.UVC_VS_FRAME_UNCOMPRESSED,UVCCamera.PIXEL_FORMAT_GRAY8,0),50,150,15,180,90);
+        if (cycle == 10) config = new DualCameraConfig(
+                new StreamConfig(1280,720,30,UVCCamera.UVC_VS_FRAME_MJPEG,UVCCamera.PIXEL_FORMAT_NV21,0),
+                new StreamConfig(640,480,15,UVCCamera.UVC_VS_FRAME_UNCOMPRESSED,UVCCamera.PIXEL_FORMAT_GRAY8,0),50,150,15,270,180);
+        if (cycle == 11) config = new DualCameraConfig(
+                new StreamConfig(1920,1080,30,UVCCamera.UVC_VS_FRAME_MJPEG,UVCCamera.PIXEL_FORMAT_NV21,0),
+                new StreamConfig(1920,1080,30,UVCCamera.UVC_VS_FRAME_MJPEG,UVCCamera.PIXEL_FORMAT_GRAY8,0),50,150,15,90,180);
+        if (cycle == 12) config = new DualCameraConfig(config.rgb,config.ir,50,150,10,270,90);
         final int mode = cycle;
-        session = new DualCameraSession(this, rgb, ir, config, mode == 1 ? preview : null, null,
+        final DualCameraConfig selected = config;
+        boolean showPreview = mode == 1 || mode == 8 || mode == 10;
+        if (showPreview) previewView.setTransform(PreviewTransform.fitCenter(previewView.getWidth(),previewView.getHeight(),
+                config.rgb.width,config.rgb.height,config.rgbRotationDegrees));
+        session = new DualCameraSession(this, rgb, ir, config, showPreview ? preview : null, null,
                 new DualCameraSession.Listener() {
                     @Override public void onReady(DualCameraSession source) {
                         ready = true;
@@ -93,7 +112,7 @@ public final class DualSessionProbeActivity extends Activity {
                                 main.post(() -> controls++);
                             });
                         }
-                        if (mode <= 2 || mode == 7) main.postDelayed(() -> sampleAndClose(source, mode), 2500);
+                        if (mode <= 2 || mode >= 7) main.postDelayed(() -> sampleAndClose(source, mode), 3000);
                     }
                     @Override public void onError(DualCameraSession source, String message, Throwable cause) {
                         errors++;
@@ -113,16 +132,22 @@ public final class DualSessionProbeActivity extends Activity {
                         if (retiredTexture != null) { if (preview != null) preview.release(); preview = null; retiredTexture.release(); retiredTexture = null; }
                         main.postDelayed(() -> afterClose(mode), 400);
                     }
-                }, pair -> consume(pair, mode));
+                }, pair -> consume(pair, mode, selected));
         if (mode == 6) session.close();
     }
 
-    private void consume(FramePair pair, int mode) {
+    private void consume(FramePair pair, int mode, DualCameraConfig config) {
         int count = pairs.incrementAndGet(); long now = SystemClock.elapsedRealtimeNanos();
         first.compareAndSet(0, now); last.set(now);
         if (Looper.myLooper() == Looper.getMainLooper() || !Thread.currentThread().getName().equals("UVC-pairs")
                 || pair.rgb.pixelFormat != UVCCamera.PIXEL_FORMAT_NV21 || pair.ir.pixelFormat != UVCCamera.PIXEL_FORMAT_GRAY8
-                || pair.rgb.pixels().remaining() != 460800 || pair.ir.luma().remaining() != 307200
+                || pair.rgb.pixels().remaining() != config.rgb.width*config.rgb.height*3/2
+                || pair.ir.luma().remaining() != config.ir.width*config.ir.height
+                || pair.rgb.width != FrameTransforms.outputWidth(config.rgb.width,config.rgb.height,config.rgbRotationDegrees)
+                || pair.rgb.height != FrameTransforms.outputHeight(config.rgb.width,config.rgb.height,config.rgbRotationDegrees)
+                || pair.ir.width != FrameTransforms.outputWidth(config.ir.width,config.ir.height,config.irRotationDegrees)
+                || pair.ir.height != FrameTransforms.outputHeight(config.ir.width,config.ir.height,config.irRotationDegrees)
+                || pair.rgb.appliedRotationDegrees != config.rgbRotationDegrees || pair.ir.appliedRotationDegrees != config.irRotationDegrees
                 || !pair.rgbPlanes().u().isDirect() || !pair.ir.pixels().isReadOnly()
                 || pair.arrivalSkewNanos > 50_000_000L
                 || now - pair.rgb.arrivalTimeNanos > 160_000_000L || now - pair.ir.arrivalTimeNanos > 160_000_000L) bad.incrementAndGet();
@@ -143,11 +168,14 @@ public final class DualSessionProbeActivity extends Activity {
     private void sampleAndClose(DualCameraSession source, int mode) {
         if (session != source || source.isClosed()) return;
         double fps = pairs.get() > 1 ? (pairs.get() - 1) * 1e9 / (last.get() - first.get()) : 0;
-        check("pairs_rate_" + mode, pairs.get() > 8 && fps <= 15.5 && fps > 3, "pairs=" + pairs.get() + ", fps=" + fps);
-        check("two_streams_" + mode, source.receivedFrames(DualCameraSession.Role.RGB) > 30
-                && source.receivedFrames(DualCameraSession.Role.IR) > 30, "both cameras produced frames");
+        check("pairs_rate_" + mode, pairs.get() > 8 && fps <= source.config.maxPairsPerSecond+.5 && fps > 3,
+                "pairs=" + pairs.get() + ", fps=" + fps + ", requested_limit=" + source.config.maxPairsPerSecond);
+        check("two_streams_" + mode, source.receivedFrames(DualCameraSession.Role.RGB) > source.config.rgb.fps
+                && source.receivedFrames(DualCameraSession.Role.IR) > source.config.ir.fps,
+                "RGB="+source.config.rgb.width+"x"+source.config.rgb.height+"@"+source.config.rgb.fps+"/"+source.config.rgbRotationDegrees
+                        +", IR="+source.config.ir.width+"x"+source.config.ir.height+"@"+source.config.ir.fps+"/"+source.config.irRotationDegrees);
         if (mode <= 2) check("controls_" + mode, controls == 2, "reads=" + controls);
-        if (mode == 1) check("rgb_preview", updates.get() > 10, "updates=" + updates.get());
+        if (mode == 1 || mode == 8 || mode == 10) check("rgb_preview_"+mode, updates.get() > 10, "updates=" + updates.get());
         source.close();
     }
 
@@ -159,7 +187,29 @@ public final class DualSessionProbeActivity extends Activity {
             if (thread.getName().equals("UVC-pairs") || thread.getName().equals("UVC-commands")) workers++;
         check("resources_drained_" + mode, usb == 0 && workers == 0, "usb_fds=" + usb + ", java_workers=" + workers);
         cycle++;
-        if (cycle == 8) finishReport(); else openCycle();
+        if (cycle == 13) finishReport(); else openCycle();
+    }
+
+    private void rotationFixture() {
+        int[][] expected = {{0,1,2,3,4,5,6,7,8,9,10,11},{4,0,5,1,6,2,7,3,8,9,10,11},
+                {7,6,5,4,3,2,1,0,10,11,8,9},{3,7,2,6,1,5,0,4,10,11,8,9}};
+        for (int format : new int[]{2,3,8}) for (int index=0;index<4;index++) {
+            int length = format==8?8:12;
+            java.nio.ByteBuffer src=java.nio.ByteBuffer.allocateDirect(length+6), dst=java.nio.ByteBuffer.allocateDirect(length+6);
+            for(int i=0;i<length;i++)src.put(i+3,(byte)i);
+            for(int i=0;i<length+6;i++)dst.put(i,(byte)99);
+            src.position(3);src.limit(3+length);dst.position(3);dst.limit(3+length);
+            FrameTransforms.copyRotated(src.asReadOnlyBuffer(),dst,4,2,format,index*90);
+            boolean ok=src.position()==3&&dst.position()==3;
+            for(int i=0;i<length;i++)if(dst.get(i+3)!=(byte)expected[index][i])ok=false;
+            dst.clear();ok=ok&&dst.get(2)==99&&dst.get(length+3)==99;
+            check("jni_rotation_"+format+"_"+(index*90),ok,"packed pixels, chroma, windows and guards");
+        }
+        java.nio.ByteBuffer alias=java.nio.ByteBuffer.allocateDirect(12);
+        try {
+            FrameTransforms.copyRotated(alias,alias.duplicate(),4,2,3,90);
+            check("native_overlap_rejected",false,"accepted alias");
+        }catch(IllegalArgumentException expectedFailure){check("native_overlap_rejected",true,"rejected");}
     }
 
     private void check(String name, boolean passed, String detail) {

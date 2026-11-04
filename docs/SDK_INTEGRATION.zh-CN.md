@@ -13,7 +13,7 @@ Demo 展示真实的 NV21 / GRAY8 采集与消费接口，不包含 HelloFace SD
 ```
 
 这只执行本地构建和本地 Maven 目录生成，不上传到远端、不运行 CI/CD。
-输出 `build/sdk/uvc-android-camera-0.2.0/` 及同名 ZIP，包含：
+输出 `build/sdk/uvc-android-camera-0.3.0/` 及同名 ZIP，包含：
 
 - `sdk/`：四 ABI Release AAR 与 Java 源码 JAR。
 - `maven-repository/`：固定版本的 AAR、POM、Gradle module 元数据和源码。
@@ -48,10 +48,10 @@ dependencyResolutionManagement {
 在应用模块添加：
 
 ```groovy
-dependencies { implementation 'com.facesdkpro:uvc-android-camera:0.2.0' }
+dependencies { implementation 'com.facesdkpro:uvc-android-camera:0.3.0' }
 ```
 
-也可把 `sdk/*.aar` 放入应用 `libs/`，使用 `implementation files('libs/uvc-android-camera-0.2.0.aar')`。
+也可把 `sdk/*.aar` 放入应用 `libs/`，使用 `implementation files('libs/uvc-android-camera-0.3.0.aar')`。
 库没有第三方 Java 运行时依赖；JNI 保留规则和原生许可随 AAR 打包。避免同时引入上游同名底层类或 `.so`。
 
 ## 打开双目会话
@@ -94,6 +94,44 @@ session.close();
 重试或重连必须等待 `onClosed`，重新枚举并创建新会话；不会静默换设备或退回单目。
 `onReady` 不表示两路在同一时刻曝光，也不表示有一张可用于活体的脸。
 
+## 分辨率、帧率与旋转
+
+每路 `StreamConfig` 的宽高是相机的原始采集分辨率，`fps` 是向设备请求的采集帧率。
+设备必须支持完整的分辨率/传输格式/FPS 组合；不支持时明确失败。受曝光、USB 带宽及处理耗时影响，实际 FPS 可能低于请求值。
+`maxPairsPerSecond` 仅限制算法线程的帧对交付，不会修改传感器 FPS。
+
+```java
+StreamConfig rgb = new StreamConfig(1280, 720, 30,
+    UVCCamera.UVC_VS_FRAME_MJPEG, UVCCamera.PIXEL_FORMAT_NV21, 0);
+StreamConfig ir = new StreamConfig(640, 480, 15,
+    UVCCamera.UVC_VS_FRAME_UNCOMPRESSED, UVCCamera.PIXEL_FORMAT_GRAY8, 0);
+DualCameraConfig config = new DualCameraConfig(rgb, ir, 50, 150, 15)
+    .withRotations(90, 270); // 两路分别顺时针旋转
+
+// 等 TextureView 布局完成后、以及尺寸变化时更新。
+rgbTextureView.setOpaque(false);
+rgbTextureView.setTransform(PreviewTransform.fitCenter(
+    rgbTextureView.getWidth(), rgbTextureView.getHeight(), rgb.width, rgb.height,
+    config.rgbRotationDegrees));
+// 用 config 创建 DualCameraSession；其 Surface 预览仍是原始采集方向，以上矩阵负责显示旋转。
+```
+
+仅允许 0/90/180/270 度。预览使用 TextureView 内容变换，不旋转显示用的整帧 CPU 缓冲；
+调用方式见 [Android TextureView](https://developer.android.com/reference/android/view/TextureView)。
+双目数据回调在原有目标池中实际旋转 RGB NV21 和 IR GRAY8，不增加整帧临时缓存或做颜色转换。
+90/270 度时 `CameraFrame.width/height` 交换；`sourceWidth/sourceHeight` 保留采集尺寸，
+`appliedRotationDegrees` 记录已经应用的角度。NV21 的 VU 色度对保持正确顺序。
+向算法 SDK 传入旋转后的像素时使用旋转参数 **0**，人脸框也属于该输出方向，避免重复旋转。
+独立旋转不等于 RGB/IR 几何标定或同人关联。
+
+低层 `UvcCameraManager` 回调保持原始方向。需要自行处理时，可预分配独立目标 DirectByteBuffer，调用
+`FrameTransforms.copyRotated(source, destination, width, height, pixelFormat, degrees)`；支持紧凑 NV21/NV12/GRAY8，
+GRAY8 可为奇数尺寸。源/目标不得重叠，目标须可写；调用不改变双方的 position/limit。
+
+修改分辨率、采集 FPS、传输格式或旋转配置时，先关闭旧会话，等 `onClosed` 后用新配置创建会话。
+Demo 的“应用并重启”按此顺序释放和重新协商，并在页面隐藏时取消待重启任务。
+Demo 提供常见候选参数；候选出现在界面上不表示当前相机一定支持该组合，打开结果和实际帧率分别显示。
+
 ## 帧格式、所有权与背压
 
 | 数据 | 格式 | 布局与步长 | 640×480 字节数 |
@@ -133,7 +171,7 @@ session.close();
 现有 HelloFace 0.8.6 的搜索活体开关是 RGB 活体；独立 IR 评估没有自动加入搜索终态。
 此 Demo 不伪造统一双目算法接口或最终通过结果。后续接入时还需补充并验证该关联契约。
 
-原始像素不自动旋转、镜像或做人脸检测。显示缩放与算法坐标分开处理。
+低层原始像素不自动旋转；双目回调按显式旋转配置交付，不自动镜像或做人脸检测。显示缩放与算法坐标分开处理。
 MJPEG 直接 GRAY8 使用 JPEG 灰度范围；YUYV→GRAY8 保留传感器原始 Y，二者阈值不能假定通用。
 MJPEG→NV21 使用现有 RGBX 转换路径；YUYV→NV21 保留源 Y，颜色元数据应根据实际路径与设备确认。
 NDK、原生体积预算和 16 KB ELF/APK 对齐保持原门禁；静态对齐通过不能替代 16 KB 页设备运行。

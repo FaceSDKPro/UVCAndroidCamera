@@ -39,6 +39,7 @@
 
 #include "libUVCCamera.h"
 #include "UVCCamera.h"
+#include "FrameRotation.h"
 
 /**
  * set the value into the long field
@@ -308,19 +309,34 @@ static jint nativeSetCaptureDisplay(JNIEnv *env, jobject thiz,
 //**********************************************************************
 static jint registerNativeMethods(JNIEnv *env, const char *class_name, JNINativeMethod *methods,
                                   int num_methods) {
-    int result = 0;
+    int result = JNI_ERR;
 
     jclass clazz = env->FindClass(class_name);
     if (LIKELY(clazz)) {
-        int result = env->RegisterNatives(clazz, methods, num_methods);
+        result = env->RegisterNatives(clazz, methods, num_methods);
         if (UNLIKELY(result < 0)) {
             LOGE("registerNativeMethods failed(class=%s)", class_name);
         }
+        env->DeleteLocalRef(clazz);
     } else {
         LOGE("registerNativeMethods: class'%s' not found", class_name);
     }
     return result;
 }
+
+static jboolean nativeRotate(JNIEnv *env, jclass, jobject source, jobject destination,
+        jint width, jint height, jint format, jint degrees) {
+    if (!source || !destination) return JNI_FALSE;
+    const jlong a = env->GetDirectBufferCapacity(source), b = env->GetDirectBufferCapacity(destination);
+    if (a < 0 || b < 0) return JNI_FALSE;
+    return rotatePackedFrame(static_cast<const uint8_t *>(env->GetDirectBufferAddress(source)), static_cast<size_t>(a),
+            static_cast<uint8_t *>(env->GetDirectBufferAddress(destination)), static_cast<size_t>(b),
+            width, height, format, degrees) ? JNI_TRUE : JNI_FALSE;
+}
+
+static JNINativeMethod transformMethods[] = {
+        {"nativeRotate", "(Ljava/nio/ByteBuffer;Ljava/nio/ByteBuffer;IIII)Z", (void *) nativeRotate},
+};
 
 static JNINativeMethod methods[] = {
         {"nativeCreate",              "()J",                                       (void *) nativeCreate},
@@ -352,5 +368,7 @@ int register_uvccamera(JNIEnv *env) {
                               methods, NUM_ARRAY_ELEMENTS(methods)) < 0) {
         return -1;
     }
+    if (registerNativeMethods(env, "com/facesdkpro/uvccamera/FrameTransforms", transformMethods,
+            NUM_ARRAY_ELEMENTS(transformMethods)) < 0) return -1;
     return 0;
 }

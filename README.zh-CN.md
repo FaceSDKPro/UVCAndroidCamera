@@ -26,18 +26,20 @@ RGB/IR 角色按 VID/PID 或用户配置绑定；插拔后重新枚举，不能�
 
 ## SDK 与 Demo 交付
 
-当前本地 SDK 版本 **0.2.0**，供 HelloFace SDK 集成开发人员引入；当前没有接入或修改 HelloFace。
+当前本地 SDK 版本 **0.3.0**，供 HelloFace SDK 集成开发人员引入；当前没有接入或修改 HelloFace。
 
 ```sh
 ./gradlew prepareSdk
 ```
 
-本地构建、单元测试、Lint 和制品审计后，生成 `build/sdk/uvc-android-camera-0.2.0.zip`：
+本地构建、单元测试、Lint 和制品审计后，生成 `build/sdk/uvc-android-camera-0.3.0.zip`：
 包含 AAR、源码 JAR、本地 Maven 仓库、可安装 Demo、只依赖二进制 SDK 的独立 Demo 源码及校验清单。
 不执行远端发布或 CI/CD。详细引入方式及完整示例见 [SDK 接入说明](docs/SDK_INTEGRATION.zh-CN.md)。
 
 - `DualCameraSession`：RGB NV21 + IR GRAY8、RGB 单路预览、有界缓冲和串行帧对回调。
 - `Nv21Planes`：直接切出 Y/U/V Buffer，便于构造算法 SDK 的 YUV 帧，无 Bitmap/I420 绕行。
+- RGB/IR 可分别配置采集分辨率、FPS 和顺时针 0°/90°/180°/270° 旋转；Demo 支持修改后“应用并重启”。
+- `FrameTransforms` 在原有池缓冲中旋转 NV21/NV12/GRAY8；`PreviewTransform` 提供 TextureView 的等比预览旋转。
 - 一路失败或断开即结束双路，等待清理完成后显式重试；不会自动降级单目。
 - 配对使用回调到达时间，仅为软件关联，不代表同步曝光、同一张脸或活体通过。
 
@@ -54,7 +56,7 @@ RGB/IR 角色按 VID/PID 或用户配置绑定；插拔后重新枚举，不能�
 - **YUYV 直接转 NV12/NV21**：ARM 使用 NEON，保留源亮度，不再绕经 RGBX；转换内核无需临时缓冲。
 - **纯 MJPEG 预览直接解码到 Surface**：按实际步幅写入，省去 RGBX 中间帧及整帧复制。
 - **无预览采集减少一次线程转发**：消费者就绪后才解码，只保留最新帧，避免处理过时 JPEG。
-- **减少常驻开销**：复用解码器和帧缓冲，USB 监控共用命令线程；原生构建保留 SIMD，裁掉未使用的编码、缩放、旋转等模块。
+- **减少常驻开销**：复用解码器和帧缓冲，USB 监控共用命令线程；原生构建保留 SIMD，裁掉未使用的编码、缩放等模块。像素旋转使用独立的小型原生内核。
 
 采集路径版本 `c0d095c` 曾在 Xiaomi 24091RPADC（Android 16）和两台 RGB/IR 摄像头上，以 640×480、双路 YUYV 请求各 15 FPS、固定 10 ms 曝光进行对照，
 **平均每交付一帧的进程 CPU 时间由 28.30 ms 降至 25.46 ms，约减少 10%**，实际吞吐略高于基线。
@@ -64,9 +66,9 @@ RGB/IR 角色按 VID/PID 或用户配置绑定；插拔后重新枚举，不能�
 
 | 项目 | 字节数 |
 |---|---:|
-| 四 ABI 的 20 个 `.so`，未压缩合计 | 1,888,028 |
-| ARM 双 ABI 的 10 个 `.so`，未压缩合计 | 866,444 |
-| SDK 0.2.0 四 ABI Release AAR，ZIP 包 | 919,593 |
+| 四 ABI 的 20 个 `.so`，未压缩合计 | 1,893,020 |
+| ARM 双 ABI 的 10 个 `.so`，未压缩合计 | 868,816 |
+| SDK 0.3.0 四 ABI Release AAR，ZIP 包 | 926,034 |
 
 逐库体积预算和 **1,900,000 字节**原生总量上限持续检查；全部 20 个 `.so` 的 **16 KB ELF 对齐**及示例 APK 的 **16 KB ZIP 对齐**已通过。
 16 KB 页真机运行仍待验证。工具链、C++ 运行时取舍及检查方法见 [NATIVE_BUILD.md](NATIVE_BUILD.md)。
@@ -104,7 +106,7 @@ python3 tools/check_artifact.py camera/build/outputs/aar/camera-release.aar --ab
 ## 接入
 
 将 `camera` 模块加入项目，或在本机构建并使用 AAR。
-`com.facesdkpro:uvc-android-camera:0.2.0` 是本工程的本地发布坐标，尚未发布到 Maven Central。
+`com.facesdkpro:uvc-android-camera:0.3.0` 是本工程的本地发布坐标，尚未发布到 Maven Central。
 需要本地 Maven 时运行 `./gradlew :camera:publishReleasePublicationToMavenLocal`。
 
 ```java
@@ -138,7 +140,17 @@ manager.close();
 `StreamConfig.defaults()` 明确选择 **640×480、MJPEG、30 FPS、NV21 回调**。
 不支持的分辨率/帧率会失败，不会静默改为更大的模式。输入格式也可选择设备提供的 YUYV。
 回调支持 YUYV、NV12、NV21、RGB、RGB565、RGBX、BGR、GRAY8；RAW 在此表示解码后的 YUYV，
-不是压缩 MJPEG 字节。像素帧不自动旋转、镜像或做人脸检测。
+不是压缩 MJPEG 字节。低层 `UvcCameraManager` 回调保留采集方向；双目 `FramePair` 按配置实际旋转像素，
+90°/270° 时输出宽高交换。均不自动镜像或做人脸检测。
+
+### 分辨率、帧率与旋转
+
+`StreamConfig(width, height, fps, frameType, pixelFormat, quirks)` 设置每路实际 UVC 采集请求；
+`DualCameraConfig.withRotations(rgbDegrees, irDegrees)` 设置双目回调的独立像素旋转。
+预览 Surface 保持采集方向，宿主使用 `PreviewTransform.fitCenter(...)` / `centerCrop(...)` 对 TextureView 做显示变换。
+应用新配置时先关闭旧会话，等待 `onClosed` 再重新打开；Demo 的“应用并重启”已执行这一步骤。
+设备不支持的分辨率/格式/FPS 组合会明确失败，不会静默降级。采集 FPS、实际观测 FPS 与帧对交付上限分别显示。
+完整调用和输出坐标约定见 [SDK 接入说明](docs/SDK_INTEGRATION.zh-CN.md)。
 
 状态回调在主线程；每路帧回调在该摄像头的原生线程，采用只保留最新帧的队列。
 回调内不要等待 UI，也不要在保留借用 Buffer 后返回；需要跨线程时自行有界复制/丢帧。
@@ -169,9 +181,10 @@ IR 人脸框、双路同人关联及活体算法由上层 SDK 管理。
 另有 120 组 YUYV 数值组合、6 组 JPEG 步幅/异常恢复检查通过。性能测量后，59 项资源回归再次通过。
 后续全局复核增加了 JNI 重入/引用、分配失败、USB 提交及 RGBX 步幅边界检查；完整证据范围见 [VALIDATION.md](VALIDATION.md)。
 
-`sample` 默认进入 SDK Demo：明确选择 RGB/IR，显示 RGB 预览、NV21/GRAY8 帧计数及帧对统计，IR 无预览。
+`sample` 默认进入 SDK Demo：明确选择 RGB/IR，每路独立设置分辨率、采集 FPS、MJPEG/YUYV 和旋转角度；
+显示 RGB 预览、旋转后的 NV21/GRAY8 宽高、实际采集 FPS 及帧对统计，IR 无预览。设置区可独立滚动，预览保持可见。
 `SdkDemoActivity.consumePair()` 是算法同步接入位置；当前只检查像素契约，不模拟识别或活体结果。
-“设备预览与控制演示”保留两个 TextureView、设备选择、三档分辨率和亮度控制；该页面只预览。
+“设备预览与控制演示”保留两个 TextureView、设备选择、独立分辨率/FPS/预览旋转和亮度控制；该页面只预览。
 `demo` 为使用本机标准 Debug 签名、启用 R8 且不带诊断 Activity 的可安装演示构建。
 `deviceTest` 是使用 Release 优化和 JNI 保留规则、以本机 Debug 身份签名的独立验收构建；
 其中的诊断 Activity 不进入正式 `release`。

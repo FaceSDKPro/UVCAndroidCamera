@@ -62,13 +62,15 @@ def main():
         subprocess.run([str(host / 'bin/aarch64-linux-android23-clang')] + cflags + include_flags + ['-c', str(native / ('libuvc/src/' + source + '.c')), '-o', str(target)], check=True)
         objects.append(str(target))
     base = command[:command.index(str(ROOT / 'tools/native/frame_pipeline_test.cpp'))]
-    tests = ['callback_ownership_test', 'jni_registration_test', 'frame_memory_test', 'stream_failure_test']
+    tests = ['callback_ownership_test', 'jni_registration_test', 'frame_memory_test', 'stream_failure_test', 'frame_rotation_test']
     for test in tests:
         cmd = base + [str(ROOT / ('tools/native/' + test + '.cpp'))]
         if test == 'callback_ownership_test':
             cmd += [str(native / 'UVCCamera/UVCButtonCallback.cpp'), str(native / 'UVCCamera/UVCStatusCallback.cpp')]
         elif test == 'jni_registration_test':
             cmd += [str(native / 'UVCCamera/_onload.cpp')]
+        elif test == 'frame_rotation_test':
+            pass  # Header-only production transform; no USB mocks needed.
         else:
             cmd += objects[:1] if test == 'frame_memory_test' else objects
             wraps = ['realloc', 'free'] if test == 'frame_memory_test' else ['malloc', 'calloc', 'realloc', 'pthread_create', 'uvc_stream_ctrl']

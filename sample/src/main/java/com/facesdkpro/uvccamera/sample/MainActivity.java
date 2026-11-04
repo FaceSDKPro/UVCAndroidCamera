@@ -3,7 +3,6 @@ package com.facesdkpro.uvccamera.sample;
 import android.app.Activity;
 import android.content.pm.PackageManager;
 import android.graphics.SurfaceTexture;
-import android.graphics.Matrix;
 import android.hardware.usb.UsbDevice;
 import android.os.Bundle;
 import android.os.Handler;
@@ -19,6 +18,7 @@ import android.widget.Spinner;
 import android.widget.TextView;
 import com.facesdkpro.uvccamera.StreamConfig;
 import com.facesdkpro.uvccamera.UvcCameraManager;
+import com.facesdkpro.uvccamera.PreviewTransform;
 import com.serenegiant.usb.UVCCamera;
 import java.util.ArrayList;
 import java.util.List;
@@ -36,7 +36,9 @@ public final class MainActivity extends Activity {
     private final Handler ui = new Handler(Looper.getMainLooper());
     private List<UsbDevice> available = new ArrayList<>();
     private TextView status;
-    private Spinner resolution;
+    private final CaptureSettingsView[] settings = new CaptureSettingsView[2];
+    private final StreamConfig[] applied = new StreamConfig[2];
+    private final int[] rotations = new int[2];
     private final Runnable tick = new Runnable() {
         public void run() {
             for (int i = 0; i < 2; i++) counters[i].setText(cameras[i] == null ? "未打开" :
@@ -50,9 +52,7 @@ public final class MainActivity extends Activity {
         LinearLayout root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(20, 20, 20, 20);
         TextView title = new TextView(this); title.setText("UVC 双目采集"); title.setTextSize(24); root.addView(title);
         status = new TextView(this); status.setText("分别选择 RGB 和 IR 摄像头"); root.addView(status);
-        resolution = new Spinner(this);
-        resolution.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item,
-                new String[]{"640 × 480 · 30 FPS", "1280 × 720 · 30 FPS", "1920 × 1080 · 30 FPS"})); root.addView(resolution);
+        TextView hint = new TextView(this); hint.setText("每路独立设置；打开双路可应用新参数。不支持的分辨率/FPS 组合会明确报错。"); root.addView(hint);
         LinearLayout actions = new LinearLayout(this);
         button(actions, "打开双路", () -> { if (checkSelfPermission("android.permission.CAMERA") == PackageManager.PERMISSION_GRANTED) openPair(); else requestPermissions(new String[]{"android.permission.CAMERA"}, 1); });
         button(actions, "停止", this::stopPair); button(actions, "刷新设备", this::refreshDevices); root.addView(actions);
@@ -62,6 +62,7 @@ public final class MainActivity extends Activity {
             LinearLayout pane = new LinearLayout(this); pane.setOrientation(LinearLayout.VERTICAL); pane.setPadding(8, 8, 8, 8);
             TextView role = new TextView(this); role.setText(i == 0 ? "RGB" : "IR"); role.setTextSize(18); pane.addView(role);
             devices[i] = new Spinner(this); pane.addView(devices[i]);
+            settings[i] = new CaptureSettingsView(this, i == 0 ? "RGB" : "IR"); pane.addView(settings[i]);
             TextureView view = new TextureView(this); view.setOpaque(false); this.previews[i] = view;
             FrameLayout previewBox = new FrameLayout(this); previewBox.setBackgroundColor(0xff000000);
             previewBox.addView(view, new FrameLayout.LayoutParams(-1, -1));
@@ -87,7 +88,13 @@ public final class MainActivity extends Activity {
             });
             previews.addView(pane, new LinearLayout.LayoutParams(0, -1, 1));
         }
-        root.addView(previews, new LinearLayout.LayoutParams(-1, 0, 1)); setContentView(root);
+        root.addView(previews, new LinearLayout.LayoutParams(-1, 0, 1));
+        root.setOnApplyWindowInsetsListener((view, insets) -> {
+            view.setPadding(20 + insets.getSystemWindowInsetLeft(), 20 + insets.getSystemWindowInsetTop(),
+                    20 + insets.getSystemWindowInsetRight(), 20 + insets.getSystemWindowInsetBottom());
+            return insets;
+        });
+        setContentView(root);
     }
 
     private void button(LinearLayout row, String label, Runnable action) {
@@ -97,13 +104,8 @@ public final class MainActivity extends Activity {
 
     private void fitPreview(int slot) {
         TextureView view = previews[slot]; if (view.getWidth() == 0 || view.getHeight() == 0) return;
-        int mode = resolution.getSelectedItemPosition();
-        float ratio = mode == 0 ? 4f / 3f : 16f / 9f;
-        float actual = (float)view.getWidth() / view.getHeight();
-        Matrix matrix = new Matrix();
-        matrix.setScale(actual > ratio ? ratio / actual : 1f, actual < ratio ? actual / ratio : 1f,
-                view.getWidth() / 2f, view.getHeight() / 2f);
-        view.setTransform(matrix);
+        StreamConfig config = applied[slot] == null ? settings[slot].config(UVCCamera.PIXEL_FORMAT_NV21) : applied[slot];
+        view.setTransform(PreviewTransform.fitCenter(view.getWidth(), view.getHeight(), config.width, config.height, rotations[slot]));
     }
 
     @Override protected void onStart() {
@@ -159,13 +161,13 @@ public final class MainActivity extends Activity {
         int a = devices[0].getSelectedItemPosition(), b = devices[1].getSelectedItemPosition();
         if (a == b) { status.setText("RGB 与 IR 必须选择不同设备"); return; }
         if (surfaces[0] == null || surfaces[1] == null) { status.setText("预览尚未就绪"); return; }
-        stopPair(); int mode = resolution.getSelectedItemPosition();
-        int width = mode == 0 ? 640 : mode == 1 ? 1280 : 1920, height = mode == 0 ? 480 : mode == 1 ? 720 : 1080;
-        StreamConfig config = new StreamConfig(width, height, 30, UVCCamera.UVC_VS_FRAME_MJPEG, UVCCamera.PIXEL_FORMAT_NV21, 0);
+        stopPair();
         int[] chosen = {a, b};
         // This screen displays previews and counters only; no unused NV21 pixel conversion.
         // Supply a FrameListener when integrating an actual analysis consumer (see README).
         for (int i = 0; i < 2; i++) {
+            StreamConfig config = settings[i].config(UVCCamera.PIXEL_FORMAT_NV21);
+            applied[i] = config; rotations[i] = settings[i].rotationDegrees();
             fitPreview(i);
             cameras[i] = manager.open(available.get(chosen[i]), config, surfaces[i], null);
         }

@@ -4,7 +4,6 @@ import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.graphics.Matrix;
 import android.graphics.SurfaceTexture;
 import android.hardware.usb.UsbDevice;
 import android.os.Bundle;
@@ -21,6 +20,9 @@ import com.facesdkpro.uvccamera.DualCameraConfig;
 import com.facesdkpro.uvccamera.DualCameraSession;
 import com.facesdkpro.uvccamera.FramePair;
 import com.facesdkpro.uvccamera.Nv21Planes;
+import com.facesdkpro.uvccamera.PreviewTransform;
+import com.facesdkpro.uvccamera.StreamConfig;
+import com.serenegiant.usb.UVCCamera;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -30,7 +32,10 @@ import java.util.concurrent.atomic.AtomicLong;
 public final class SdkDemoActivity extends Activity {
     private final Handler main = new Handler(Looper.getMainLooper());
     private final Spinner[] selectors = new Spinner[2];
+    private final CaptureSettingsView[] settings = new CaptureSettingsView[2];
+    private Spinner pairRate;
     private final AtomicLong pairs = new AtomicLong(), skewMicros = new AtomicLong();
+    private final AtomicLong pairWidth = new AtomicLong(), pairHeight = new AtomicLong(), irWidth = new AtomicLong(), irHeight = new AtomicLong();
     private final List<Runnable> retiredPreviews = new ArrayList<>();
     private List<UsbDevice> devices = new ArrayList<>();
     private TextView status, counts;
@@ -38,14 +43,22 @@ public final class SdkDemoActivity extends Activity {
     private TextureView preview;
     private Surface surface;
     private DualCameraSession session;
-    private boolean visible, failed;
+    private DualCameraConfig appliedConfig = DualCameraConfig.defaults();
+    private boolean visible, failed, restartPending;
+    private long previousRgb, previousIr, previousPairs, previousTick;
     private final Runnable tick = new Runnable() {
         @Override public void run() {
             DualCameraSession current = session;
+            long now = android.os.SystemClock.elapsedRealtimeNanos();
+            long rgb = current == null ? 0 : current.receivedFrames(DualCameraSession.Role.RGB);
+            long ir = current == null ? 0 : current.receivedFrames(DualCameraSession.Role.IR), n = pairs.get();
+            double seconds = previousTick == 0 ? 1 : (now - previousTick) / 1e9;
             counts.setText(current == null ? "RGB：NV21 · IR：GRAY8" : String.format(Locale.ROOT,
-                    "RGB %d 帧 · IR %d 帧\n交付 %d 对 · 最近回调到达间隔 %.1f ms",
-                    current.receivedFrames(DualCameraSession.Role.RGB), current.receivedFrames(DualCameraSession.Role.IR),
-                    pairs.get(), skewMicros.get() / 1000.0));
+                    "RGB %d 帧 · %.1f FPS · 输出 %d×%d\nIR %d 帧 · %.1f FPS · 输出 %d×%d\n交付 %d 对 · %.1f 对/秒 · 到达时间差 %.1f ms",
+                    rgb, Math.max(0, rgb - previousRgb) / seconds, pairWidth.get(), pairHeight.get(),
+                    ir, Math.max(0, ir - previousIr) / seconds, irWidth.get(), irHeight.get(),
+                    n, Math.max(0, n - previousPairs) / seconds, skewMicros.get() / 1000.0));
+            previousRgb = rgb; previousIr = ir; previousPairs = n; previousTick = now;
             if (visible) main.postDelayed(this, 1000);
         }
     };
@@ -55,18 +68,27 @@ public final class SdkDemoActivity extends Activity {
         LinearLayout root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setPadding(24, 16, 24, 16);
         TextView title = new TextView(this); title.setText("UVC 双目 SDK Demo"); title.setTextSize(24); root.addView(title);
         status = new TextView(this); status.setText("选择 RGB 与 IR 摄像头，演示向算法工作线程交付帧对。"); root.addView(status);
-        for (int i = 0; i < 2; i++) { selectors[i] = new Spinner(this); root.addView(selectors[i]); }
+        for (int i = 0; i < 2; i++) {
+            selectors[i] = new Spinner(this); selectors[i].setContentDescription(i == 0 ? "RGB 设备" : "IR 设备"); root.addView(selectors[i]);
+            settings[i] = new CaptureSettingsView(this, i == 0 ? "RGB" : "IR"); root.addView(settings[i]);
+        }
+        LinearLayout pairSettings = new LinearLayout(this);
+        TextView pairLabel = new TextView(this); pairLabel.setText("帧对交付上限（独立于采集 FPS）"); pairSettings.addView(pairLabel);
+        pairRate = new Spinner(this); pairRate.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item,
+                new String[]{"5 对/秒", "10 对/秒", "15 对/秒", "30 对/秒"})); pairRate.setSelection(2);
+        pairSettings.addView(pairRate, new LinearLayout.LayoutParams(0, -2, 1)); root.addView(pairSettings);
         LinearLayout actions = new LinearLayout(this);
         open = button(actions, "开始采集", () -> {
-            if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) startSession();
+            if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) applySettings();
             else requestPermissions(new String[]{Manifest.permission.CAMERA}, 1);
         });
         button(actions, "停止", this::stopSession);
         button(actions, "刷新设备", this::refreshDevices); root.addView(actions);
         counts = new TextView(this); root.addView(counts);
         TextView note = new TextView(this);
-        note.setText("640×480 · MJPEG 30 FPS · 最多 15 对/秒\n仅预览 RGB，IR 无预览。软件配对不代表硬件同步。\n本示例验证采集接口，不输出人脸识别或活体结论。"); root.addView(note);
+        note.setText("分辨率和 FPS 须为设备支持的组合，不支持时明确报错。\n旋转同时作用于 RGB 预览和双目回调像素；IR 无预览。\n软件配对不代表硬件同步，本示例不输出活体结论。"); root.addView(note);
         preview = new TextureView(this);
+        preview.setOpaque(false);
         preview.setSurfaceTextureListener(new TextureView.SurfaceTextureListener() {
             @Override public void onSurfaceTextureAvailable(SurfaceTexture texture, int width, int height) {
                 surface = new Surface(texture); fitPreview();
@@ -81,10 +103,22 @@ public final class SdkDemoActivity extends Activity {
             }
             @Override public void onSurfaceTextureUpdated(SurfaceTexture texture) {}
         });
-        root.addView(preview, new LinearLayout.LayoutParams(-1, 0, 1));
+        // Keep the settings usable on smaller screens without shrinking the preview to zero height.
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this); scroll.setFillViewport(true);
         LinearLayout diagnostic = new LinearLayout(this);
         button(diagnostic, "设备预览与控制演示", () -> startActivity(new Intent(this, MainActivity.class)));
-        root.addView(diagnostic); setContentView(root);
+        scroll.addView(root);
+        LinearLayout screen = new LinearLayout(this); screen.setOrientation(LinearLayout.VERTICAL);
+        screen.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 3));
+        android.widget.FrameLayout previewBox = new android.widget.FrameLayout(this); previewBox.setBackgroundColor(0xff000000);
+        previewBox.addView(preview, new android.widget.FrameLayout.LayoutParams(-1,-1));
+        screen.addView(previewBox, new LinearLayout.LayoutParams(-1,0,2)); screen.addView(diagnostic); setContentView(screen);
+        screen.setOnApplyWindowInsetsListener((view, insets) -> {
+            view.setPadding(insets.getSystemWindowInsetLeft(), insets.getSystemWindowInsetTop(),
+                    insets.getSystemWindowInsetRight(), insets.getSystemWindowInsetBottom());
+            return insets;
+        });
+        screen.requestApplyInsets();
     }
 
     private Button button(LinearLayout parent, String text, Runnable action) {
@@ -94,11 +128,8 @@ public final class SdkDemoActivity extends Activity {
 
     private void fitPreview() {
         if (preview.getWidth() == 0 || preview.getHeight() == 0) return;
-        float actual = (float)preview.getWidth() / preview.getHeight(), ratio = 4f / 3f;
-        Matrix transform = new Matrix();
-        transform.setScale(actual > ratio ? ratio / actual : 1f, actual < ratio ? actual / ratio : 1f,
-                preview.getWidth() / 2f, preview.getHeight() / 2f);
-        preview.setTransform(transform);
+        preview.setTransform(PreviewTransform.fitCenter(preview.getWidth(), preview.getHeight(),
+                appliedConfig.rgb.width, appliedConfig.rgb.height, appliedConfig.rgbRotationDegrees));
     }
 
     private void refreshDevices() {
@@ -132,28 +163,42 @@ public final class SdkDemoActivity extends Activity {
             status.setText("请为 RGB、IR 分别选择不同的摄像头"); return;
         }
         if (surface == null || !surface.isValid()) { status.setText("RGB 预览尚未就绪"); return; }
-        pairs.set(0); skewMicros.set(0); failed = false; open.setEnabled(false);
+        StreamConfig rgbConfig = settings[0].config(UVCCamera.PIXEL_FORMAT_NV21), irConfig = settings[1].config(UVCCamera.PIXEL_FORMAT_GRAY8);
+        int[] rates = {5, 10, 15, 30};
+        appliedConfig = new DualCameraConfig(rgbConfig, irConfig, 50, 150, rates[pairRate.getSelectedItemPosition()],
+                settings[0].rotationDegrees(), settings[1].rotationDegrees());
+        fitPreview(); pairs.set(0); skewMicros.set(0); pairWidth.set(0); pairHeight.set(0); irWidth.set(0); irHeight.set(0);
+        previousRgb = previousIr = previousPairs = previousTick = 0; failed = false; open.setEnabled(false);
         status.setText("正在申请权限并打开两路摄像头…");
         try {
-            session = new DualCameraSession(this, devices.get(rgb), devices.get(ir), DualCameraConfig.defaults(), surface, null,
+            session = new DualCameraSession(this, devices.get(rgb), devices.get(ir), appliedConfig, surface, null,
                     new DualCameraSession.Listener() {
                         @Override public void onReady(DualCameraSession source) {
-                            if (session == source && visible) status.setText("双路已打开，正在交付 NV21 / GRAY8 帧对");
+                            if (session == source && visible) {
+                                status.setText(String.format(Locale.ROOT, "正在采集 · RGB %d×%d @%d / %d° · IR %d×%d @%d / %d°",
+                                        rgbConfig.width, rgbConfig.height, rgbConfig.fps, appliedConfig.rgbRotationDegrees,
+                                        irConfig.width, irConfig.height, irConfig.fps, appliedConfig.irRotationDegrees));
+                                open.setEnabled(true); open.setText("应用并重启");
+                            }
                         }
                         @Override public void onError(DualCameraSession source, String message, Throwable cause) {
-                            if (session == source) failed = true;
+                            if (session == source) { failed = true; restartPending = false; open.setEnabled(false); }
                             if (session == source && visible) status.setText(message + (cause == null ? "" : " · " + cause.getMessage()));
                         }
                         @Override public void onClosed(DualCameraSession source) {
                             if (session == source) {
                                 session = null; open.setEnabled(visible);
+                                open.setText("开始采集");
                                 if (visible && !failed) status.setText("采集已停止，两路资源已释放");
+                                if (restartPending && visible && !failed) {
+                                    restartPending = false; main.post(SdkDemoActivity.this::startSession);
+                                }
                             }
                             releaseRetiredPreviews();
                         }
                     }, this::consumePair);
         } catch (RuntimeException error) {
-            open.setEnabled(true); status.setText("打开失败 · " + error.getMessage());
+            open.setEnabled(true); open.setText("开始采集"); status.setText("打开失败 · " + error.getMessage());
         }
     }
 
@@ -164,9 +209,16 @@ public final class SdkDemoActivity extends Activity {
         if (!rgb.y().isDirect() || pair.ir.luma().remaining() != pair.ir.width * pair.ir.height)
             throw new IllegalStateException("Unexpected pixel contract");
         skewMicros.set(pair.arrivalSkewNanos / 1000); pairs.incrementAndGet();
+        pairWidth.set(pair.rgb.width); pairHeight.set(pair.rgb.height); irWidth.set(pair.ir.width); irHeight.set(pair.ir.height);
+    }
+
+    private void applySettings() {
+        if (session == null) startSession();
+        else { restartPending = true; open.setEnabled(false); session.close(); status.setText("正在释放旧会话并应用新设置…"); }
     }
 
     private void stopSession() {
+        restartPending = false;
         if (session != null) { session.close(); if (visible) status.setText("正在停止采集并释放资源…"); }
     }
 
@@ -179,7 +231,7 @@ public final class SdkDemoActivity extends Activity {
     }
     @Override public void onRequestPermissionsResult(int request, String[] names, int[] results) {
         super.onRequestPermissionsResult(request, names, results);
-        if (request == 1 && results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) startSession();
+        if (request == 1 && results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) applySettings();
         else status.setText("需要相机权限");
     }
 }

@@ -30,6 +30,7 @@ public final class DualCameraSession implements AutoCloseable {
     public interface FramePairListener { void onFramePair(FramePair pair); }
     private static final AtomicLong NEXT_ID = new AtomicLong();
     public final long sessionId = NEXT_ID.incrementAndGet();
+    public final DualCameraConfig config;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final Listener listener;
     private final AtomicBoolean closed = new AtomicBoolean();
@@ -75,6 +76,7 @@ public final class DualCameraSession implements AutoCloseable {
         if (rgbPreview != null && !rgbPreview.isValid() || irPreview != null && !irPreview.isValid())
             throw new IllegalArgumentException("Preview Surface is invalid");
         this.listener = listener;
+        this.config = config;
         dispatcher = new FramePairDispatcher(sessionId, config, SystemClock::elapsedRealtimeNanos,
                 pair -> { if (!closed.get()) frames.onFramePair(pair); },
                 error -> fail("Frame-pair consumer failed", error),

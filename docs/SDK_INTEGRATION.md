@@ -13,7 +13,7 @@ Use JDK 17, Android SDK 36 and NDK 29.0.14206865 at the source root:
 ```
 
 This builds locally and creates a local Maven directory. It does not upload artifacts or run CI/CD.
-`build/sdk/uvc-android-camera-0.2.0/` and its ZIP contain:
+`build/sdk/uvc-android-camera-0.3.0/` and its ZIP contain:
 
 - `sdk/`: four-ABI Release AAR and Java sources JAR.
 - `maven-repository/`: fixed-version AAR, POM, Gradle module metadata and sources.
@@ -49,11 +49,11 @@ dependencyResolutionManagement {
 Then add the application dependency:
 
 ```groovy
-dependencies { implementation 'com.facesdkpro:uvc-android-camera:0.2.0' }
+dependencies { implementation 'com.facesdkpro:uvc-android-camera:0.3.0' }
 ```
 
 Alternatively, copy the AAR into application `libs/` and use
-`implementation files('libs/uvc-android-camera-0.2.0.aar')`.
+`implementation files('libs/uvc-android-camera-0.3.0.aar')`.
 There are no third-party Java runtime dependencies. JNI consumer rules and native license notices are embedded.
 Do not also package upstream copies of the same classes or native libraries.
 
@@ -99,6 +99,46 @@ ends the entire session. Wait for `onClosed`, enumerate again and create a new s
 There is no silent device substitution or single-camera fallback.
 `onReady` proves neither simultaneous exposure nor a usable face.
 
+## Resolution, frame rate and rotation
+
+Each `StreamConfig` width/height is the original capture resolution, and `fps` requests a device capture rate.
+The camera must support the full resolution/transport/FPS combination; unsupported requests fail explicitly.
+Exposure, USB bandwidth and processing can lower the observed rate. `maxPairsPerSecond` limits consumer delivery only.
+
+```java
+StreamConfig rgb = new StreamConfig(1280, 720, 30,
+    UVCCamera.UVC_VS_FRAME_MJPEG, UVCCamera.PIXEL_FORMAT_NV21, 0);
+StreamConfig ir = new StreamConfig(640, 480, 15,
+    UVCCamera.UVC_VS_FRAME_UNCOMPRESSED, UVCCamera.PIXEL_FORMAT_GRAY8, 0);
+DualCameraConfig config = new DualCameraConfig(rgb, ir, 50, 150, 15)
+    .withRotations(90, 270); // Independent clockwise rotations
+
+// Update after the TextureView is laid out and whenever its dimensions change.
+rgbTextureView.setOpaque(false);
+rgbTextureView.setTransform(PreviewTransform.fitCenter(
+    rgbTextureView.getWidth(), rgbTextureView.getHeight(), rgb.width, rgb.height,
+    config.rgbRotationDegrees));
+// Open DualCameraSession with config. Surface preview remains in source orientation;
+// the matrix above handles its display rotation.
+```
+
+Only 0/90/180/270 degrees are accepted. Preview uses a TextureView content transform without rotating a CPU display frame;
+see [Android TextureView](https://developer.android.com/reference/android/view/TextureView).
+Paired delivery physically rotates RGB NV21 and IR GRAY8 directly into existing destination pool buffers, without a full-frame scratch buffer or color conversion.
+Quarter turns swap `CameraFrame.width/height`. `sourceWidth/sourceHeight` retain capture dimensions, and
+`appliedRotationDegrees` records the angle already applied to pixels. NV21 VU pairs retain their order.
+Use rotation **0** when submitting those rotated pixels to an algorithm SDK; face boxes are in the output orientation.
+Rotation alone is not RGB/IR geometric calibration or face correspondence.
+
+Low-level `UvcCameraManager` callbacks retain source orientation. For custom processing, preallocate an independent direct destination and call
+`FrameTransforms.copyRotated(source, destination, width, height, pixelFormat, degrees)`.
+It accepts packed NV21/NV12/GRAY8, including odd-sized GRAY8. Buffers must not overlap, destination must be writable,
+and positions/limits are preserved.
+
+Close the old session and wait for `onClosed` before applying new resolution, capture FPS, transport or rotation settings.
+The Demo apply/restart action follows this order, renegotiates capture and cancels a pending restart when hidden.
+Demo choices are common candidate settings, not a capability guarantee for the selected camera. Open errors and observed FPS are shown separately.
+
 ## Pixels, ownership and backpressure
 
 | Data | Format | Layout and strides | Bytes at 640x480 |
@@ -142,7 +182,7 @@ This SDK has no HelloFace algorithm dependency or wrapper. A consumer can call t
 HelloFace 0.8.6's search liveness switch controls RGB liveness. Independent IR evaluation is not automatically part of the search outcome.
 This Demo does not invent a unified binocular algorithm API or simulate an acceptance result. That association contract still needs implementation and validation during integration.
 
-Pixels are not automatically rotated, mirrored or face-detected. Keep display transforms separate from algorithm coordinates.
+Low-level pixels retain source orientation; paired callbacks apply the explicitly configured rotation. Neither API automatically mirrors or detects faces. Keep display transforms separate from algorithm coordinates.
 Direct MJPEG GRAY8 uses JPEG intensity range; YUYV GRAY8 preserves source Y. Do not assume a shared threshold across paths.
 MJPEG NV21 retains its RGBX conversion; YUYV NV21 preserves source luma. Confirm color metadata for the actual device/path.
 NDK, native size budgets and 16 KB ELF/APK alignment gates remain enforced; static alignment does not replace runtime testing on a 16 KB device.

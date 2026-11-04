@@ -60,7 +60,13 @@ final class FramePairDispatcher implements AutoCloseable {
             if (source.remaining() != slot.pixels.capacity()) {
                 pool.add(slot); throw new IllegalArgumentException("Unexpected packed frame capacity");
             }
-            slot.pixels.clear(); slot.pixels.put(source); slot.pixels.flip();
+            slot.pixels.clear();
+            int rotation = isRgb ? config.rgbRotationDegrees : config.irRotationDegrees;
+            try {
+                if (rotation == 0) { slot.pixels.put(source); slot.pixels.flip(); }
+                else FrameTransforms.copyRotated(source, slot.pixels, stream.width, stream.height, stream.pixelFormat, rotation);
+            }
+            catch (RuntimeException | Error error) { pool.add(slot); throw error; }
             slot.sequence = frame.sequence; slot.arrival = frame.arrivalTimeNanos;
             if (isRgb) rgb = slot; else ir = slot;
             scheduleLocked();
@@ -93,8 +99,8 @@ final class FramePairDispatcher implements AutoCloseable {
         Throwable error = null;
         try {
             consumer.accept(new FramePair(sessionId, ++pairId,
-                    new CameraFrame(a.pixels.asReadOnlyBuffer(), config.rgb, a.sequence, a.arrival),
-                    new CameraFrame(b.pixels.asReadOnlyBuffer(), config.ir, b.sequence, b.arrival)));
+                    new CameraFrame(a.pixels.asReadOnlyBuffer(), config.rgb, config.rgbRotationDegrees, a.sequence, a.arrival),
+                    new CameraFrame(b.pixels.asReadOnlyBuffer(), config.ir, config.irRotationDegrees, b.sequence, b.arrival)));
         } catch (RuntimeException | Error problem) { error = problem; }
         finally {
             synchronized (lock) {
