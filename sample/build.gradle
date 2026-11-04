@@ -27,5 +27,5 @@ android {
 dependencies {
     if (providers.gradleProperty('uvcSdkRepository').isPresent()) {
         implementation "com.facesdkpro:uvc-android-camera:${rootProject.ext.uvcSdkVersion}"
-    } else implementation project(':camera')
+    } else implementation project(':UVCCamera')
 }

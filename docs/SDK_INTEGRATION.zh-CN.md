@@ -9,7 +9,7 @@ Demo 展示真实的 NV21 / GRAY8 采集与消费接口，不包含 HelloFace SD
 在源码根目录，使用 JDK 17、Android SDK 36、NDK 29.0.14206865：
 
 ```sh
-./gradlew :camera:testReleaseUnitTest :camera:lintRelease :sample:lintDemo prepareSdk
+./gradlew :UVCCamera:testReleaseUnitTest :UVCCamera:lintRelease :sample:lintDemo prepareSdk
 ```
 
 这只执行本地构建和本地 Maven 目录生成，不上传到远端、不运行 CI/CD。
@@ -18,7 +18,7 @@ Demo 展示真实的 NV21 / GRAY8 采集与消费接口，不包含 HelloFace SD
 - `sdk/`：四 ABI Release AAR 与 Java 源码 JAR。
 - `maven-repository/`：固定版本的 AAR、POM、Gradle module 元数据和源码。
 - `demo/`：启用 R8 的可安装演示 APK，采用本机标准 Android Debug 签名。
-- `demo-source/`：独立示例工程，只依赖交付包内的 Maven AAR，不包含 `camera` 源码模块。
+- `demo-source/`：独立示例工程，只依赖交付包内的 Maven AAR，不包含 `UVCCamera` 源码模块。
 - 中英文说明、许可、`sdk-manifest.json` 和 `SHA256SUMS`。
 
 SDK 最低 API 21；Demo 最低 API 23。Demo APK 仅供开发演示，正式应用使用自己的签名。

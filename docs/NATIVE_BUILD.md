@@ -3,7 +3,7 @@
 ## 中文
 
 与 HiFace Android 共用 NDK `29.0.14206865`、JDK 17、Gradle 8.14.3 和 AGP 8.13.2。
-NDK 版本及可选 ABI 集中在根 `build.gradle`，camera 与 sample 读取同一配置。
+NDK 版本及可选 ABI 集中在根 `build.gradle`，UVCCamera 与 sample 读取同一配置。
 
 - C++17；C/C++ 使用 `-O3 -flto=thin -fstack-protector-strong`，按函数/数据分段，链接时回收不可达代码。
 - 保留 JPEG/libyuv SIMD；五份 version script 保持已审查的 133 个跨库导出入口。
@@ -59,7 +59,7 @@ ARM 双 ABI AAR 为 476,986 字节，内含 840,244 字节原生库；每个 ARM
 With `--apk`, it also requires matching uncompressed native libraries with ZIP data offsets divisible by 16,384.
 
 ```sh
-python3 tools/check_artifact.py camera/build/outputs/aar/camera-release.aar --apk sample/build/outputs/apk/release/sample-release-unsigned.apk
+python3 tools/check_artifact.py UVCCamera/build/outputs/aar/UVCCamera-release.aar --apk sample/build/outputs/apk/release/sample-release-unsigned.apk
 "$ANDROID_SDK_ROOT/build-tools/36.0.0/zipalign" -c -P 16 4 sample/build/outputs/apk/release/sample-release-unsigned.apk
 ```
 

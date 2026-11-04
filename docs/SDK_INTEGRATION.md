@@ -9,7 +9,7 @@ HelloFace has not been modified or linked as part of this preparation.
 Use JDK 17, Android SDK 36 and NDK 29.0.14206865 at the source root:
 
 ```sh
-./gradlew :camera:testReleaseUnitTest :camera:lintRelease :sample:lintDemo prepareSdk
+./gradlew :UVCCamera:testReleaseUnitTest :UVCCamera:lintRelease :sample:lintDemo prepareSdk
 ```
 
 This builds locally and creates a local Maven directory. It does not upload artifacts or run CI/CD.
@@ -18,7 +18,7 @@ This builds locally and creates a local Maven directory. It does not upload arti
 - `sdk/`: four-ABI Release AAR and Java sources JAR.
 - `maven-repository/`: fixed-version AAR, POM, Gradle module metadata and sources.
 - `demo/`: installable, R8-optimized demonstration APK using the local standard Android debug identity.
-- `demo-source/`: standalone sample that consumes the bundled Maven AAR, without a `camera` source module.
+- `demo-source/`: standalone sample that consumes the bundled Maven AAR, without a `UVCCamera` source module.
 - Bilingual documentation, licenses, `sdk-manifest.json` and `SHA256SUMS`.
 
 Minimum API levels are 21 for the SDK and 23 for the Demo. Use your own application signing for production.

@@ -32,9 +32,9 @@ def main():
     ndk_version = re.search(r"ndkVersion: '([^']+)'", (ROOT / 'build.gradle').read_text()).group(1)
     ndk = Path(sdk) / 'ndk' / ndk_version
     host = next(path for path in (ndk / 'toolchains/llvm/prebuilt').iterdir() if path.is_dir())
-    native = ROOT / 'camera/src/main/jni'
+    native = ROOT / 'UVCCamera/src/main/jni'
     before = source_fingerprint()
-    aar = ROOT / 'camera/build/outputs/aar/camera-release.aar'
+    aar = ROOT / 'UVCCamera/build/outputs/aar/UVCCamera-release.aar'
     aar_sha = file_sha256(aar)
     libraries = []
     with zipfile.ZipFile(aar) as archive:

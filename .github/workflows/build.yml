@@ -20,8 +20,8 @@ jobs:
           packages: 'platforms;android-36 build-tools;36.0.0 ndk;29.0.14206865'
           log-accepted-android-sdk-licenses: 'false'
       - name: Build and test
-        run: ./gradlew :camera:assembleRelease :camera:testReleaseUnitTest :camera:lintRelease :sample:assembleRelease :sample:assembleDeviceTest :sample:lintRelease
+        run: ./gradlew :UVCCamera:assembleRelease :UVCCamera:testReleaseUnitTest :UVCCamera:lintRelease :sample:assembleRelease :sample:assembleDeviceTest :sample:lintRelease
       - name: Audit source and AAR
         run: |
           python3 tools/audit_source.py
-          python3 tools/check_artifact.py camera/build/outputs/aar/camera-release.aar
+          python3 tools/check_artifact.py UVCCamera/build/outputs/aar/UVCCamera-release.aar

@@ -40,7 +40,7 @@ if failures:
     raise SystemExit("\n".join(failures))
 # Imported code/license text retains upstream whitespace. Content/secret checks above still cover it.
 subprocess.run(["git", "diff", "--cached", "--check", "--", ".",
-                ":(exclude)camera/src/main/jni/**",
-                ":(exclude)camera/src/main/java/com/serenegiant/**",
-                ":(exclude)camera/src/main/resources/META-INF/uvccamera/LICENSES/**"], cwd=ROOT, check=True)
+                ":(exclude)UVCCamera/src/main/jni/**",
+                ":(exclude)UVCCamera/src/main/java/com/serenegiant/**",
+                ":(exclude)UVCCamera/src/main/resources/META-INF/uvccamera/LICENSES/**"], cwd=ROOT, check=True)
 print("Source audit passed: " + str(len(names)) + " files; no build products or credential-shaped content")

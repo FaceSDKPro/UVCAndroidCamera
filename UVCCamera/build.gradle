@@ -23,8 +23,8 @@ afterEvaluate { publishing { publications { release(MavenPublication) {
         description = 'Independent RGB/IR UVC camera SDK: preview, bounded NV21/GRAY8 pairs, controls and lifecycle'
         url = 'https://github.com/FaceSDKPro/UVCAndroidCamera'
         licenses { license {
-            name = 'Apache License, Version 2.0; bundled native components retain their own licenses (see NOTICE)'
-            url = 'https://github.com/FaceSDKPro/UVCAndroidCamera/blob/main/NOTICE'
+            name = 'Apache License, Version 2.0; bundled native components retain their own licenses'
+            url = 'https://github.com/FaceSDKPro/UVCAndroidCamera/blob/main/LICENSE'
             distribution = 'repo'
         } }
         scm { url = 'https://github.com/FaceSDKPro/UVCAndroidCamera'; connection = 'scm:git:https://github.com/FaceSDKPro/UVCAndroidCamera.git' }

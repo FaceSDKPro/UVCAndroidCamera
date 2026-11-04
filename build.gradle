@@ -13,12 +13,12 @@ ext.uvcNative = [ndkVersion: '29.0.14206865', abis: requestedUvcAbis]
 ext.uvcSdkVersion = '0.3.0'
 
 // Local developer delivery only. No upload, remote repository or CI/CD task.
-if (findProject(':camera') != null) {
+if (findProject(':UVCCamera') != null) {
     tasks.register('prepareSdk', Exec) {
         group = 'distribution'
         description = 'Build and audit a local SDK, Maven repository and standalone demo bundle'
-        dependsOn ':camera:publishReleasePublicationToSdkRepository', ':sample:assembleDemo',
-                ':camera:testReleaseUnitTest', ':camera:lintRelease', ':sample:lintDemo'
+        dependsOn ':UVCCamera:publishReleasePublicationToSdkRepository', ':sample:assembleDemo',
+                ':UVCCamera:testReleaseUnitTest', ':UVCCamera:lintRelease', ':sample:lintDemo'
         commandLine 'python3', 'tools/prepare_sdk.py', '--version', uvcSdkVersion,
                 '--abis', requestedUvcAbis.join(',')
     }

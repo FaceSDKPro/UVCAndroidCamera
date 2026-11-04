@@ -14,8 +14,8 @@ PACKAGE = "com.facesdkpro.uvccamera.sample"
 
 
 def source_fingerprint():
-    paths = sorted((ROOT / "camera/src/main").rglob("*"))
-    paths += [ROOT / name for name in ["camera/build.gradle", "camera/consumer-rules.pro",
+    paths = sorted((ROOT / "UVCCamera/src/main").rglob("*"))
+    paths += [ROOT / name for name in ["UVCCamera/build.gradle", "UVCCamera/consumer-rules.pro",
                                        "build.gradle", "gradle.properties", "gradle/wrapper/gradle-wrapper.properties"]]
     digest = hashlib.sha256()
     for path in paths:
