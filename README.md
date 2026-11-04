@@ -26,18 +26,18 @@ The capture pipeline reduces decoding, memory copies and thread handoffs for con
 - **One fewer headless thread handoff**: decode when the consumer is ready and retain only the latest input instead of processing stale JPEGs.
 - **Lower ongoing overhead**: reuse decoders and frame buffers, share the USB/command worker, retain native SIMD and exclude unused encoding, scaling and rotation modules.
 
-On a Xiaomi 24091RPADC (Android 16) with RGB/IR cameras, dual 640×480 YUYV capture requested at 15 FPS per camera and fixed 10 ms exposure reduced
+The capture-path version `c0d095c` was measured on a Xiaomi 24091RPADC (Android 16) with RGB/IR cameras: dual 640×480 YUYV capture requested at 15 FPS per camera and fixed 10 ms exposure reduced
 **mean process CPU time per delivered frame from 28.30 ms to 25.46 ms, about 10%**, with slightly higher achieved throughput.
-The full comparison contains 60 samples. MJPEG scenario ranges overlap; electrical power has not been measured.
+That version's full comparison contains 60 samples. MJPEG scenario ranges overlap; electrical power has not been measured.
 See [performance records](PERFORMANCE.md) for conditions, achieved FPS and results.
 
 Current NDK 29 build sizes:
 
 | Item | Bytes |
 |---|---:|
-| 20 `.so` libraries across four ABIs, uncompressed total | 1,869,372 |
-| 10 `.so` libraries across the two ARM ABIs, uncompressed total | 856,080 |
-| Default four-ABI Release AAR, ZIP archive | 892,396 |
+| 20 `.so` libraries across four ABIs, uncompressed total | 1,888,028 |
+| 10 `.so` libraries across the two ARM ABIs, uncompressed total | 866,444 |
+| Default four-ABI Release AAR, ZIP archive | 902,427 |
 
 Per-library budgets and the **1,900,000-byte** native payload ceiling remain enforced.
 All 20 libraries pass **16 KB ELF alignment**, and the sample APKs pass **16 KB ZIP alignment**.
@@ -145,7 +145,7 @@ Verify attach broadcasts on the target system before disabling polling; when bro
 
 On 2026-11-04, the tablet and RGB/IR cameras above passed 59 device checks, 24 dual-camera mode cases and 10 transition phases.
 Another 120 YUYV numerical combinations and six JPEG stride/error-recovery groups passed. All 59 resource checks passed again after performance measurements.
-See [VALIDATION.md](VALIDATION.md) for the complete evidence scope (Chinese).
+Subsequent global review adds JNI reentrancy/reference, allocation-failure, USB-submission and RGBX stride-boundary checks. See [VALIDATION.md](VALIDATION.md) for the complete evidence scope (Chinese).
 
 `sample` provides two TextureViews, device selection, three resolution presets, frame counters and brightness controls.
 The sample uses preview-only sessions by default; add a FrameListener as shown above when consuming pixels.

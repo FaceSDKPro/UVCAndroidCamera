@@ -412,7 +412,7 @@ int UVCPreview::startPreview() {
         {
             if (mPreviewWindow || mFrameCallbackObj) {
                 result = pthread_create(&preview_thread, NULL, preview_thread_func, (void *) this);
-                pthread_setname_np(preview_thread, "preview_thread");
+                if (result) preview_thread = 0;
             }
         }
         pthread_mutex_unlock(&preview_mutex);
@@ -541,6 +541,7 @@ void UVCPreview::clearPreviewFrame() {
 }
 
 void *UVCPreview::preview_thread_func(void *vptr_args) {
+    pthread_setname_np(pthread_self(), "preview_thread");
     int result;
 
     ENTER();
@@ -600,7 +601,6 @@ int UVCPreview::ensureCaptureThread() {
     if (capture_thread) return 0;
     const int result = pthread_create(&capture_thread, NULL, capture_thread_func, this);
     if (result) { capture_thread = 0; return result; }
-    pthread_setname_np(capture_thread, "capture_thread");
     mCaptureThreadReady.store(true, std::memory_order_release);
     return 0;
 }
@@ -848,7 +848,9 @@ void *UVCPreview::capture_thread_func(void *vptr_args) {
         JavaVM *vm = getVM();
         JNIEnv *env;
         // attach to JavaVM
-        vm->AttachCurrentThread(&env, NULL);
+        if (vm->AttachCurrentThread(&env, NULL) != JNI_OK) return NULL;
+        // ART may assign a thread name while attaching; set the diagnostic name afterwards.
+        pthread_setname_np(pthread_self(), "capture_thread");
         preview->do_capture(env);    // never return until finish previewing
         // detach from JavaVM
         vm->DetachCurrentThread();

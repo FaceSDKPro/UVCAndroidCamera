@@ -1,3 +1,4 @@
+// Modified by FaceSDKPro, 2026-11-04; see UPSTREAM.md.
 /*********************************************************************
 * Software License Agreement (BSD License)
 *
@@ -69,7 +70,7 @@ int gettimeofday(struct timeval *tv, struct timezone *tz)
 
 void *_uvc_user_caller(void *arg);
 
-void _uvc_populate_frame(uvc_stream_handle_t *strmh);
+uvc_error_t _uvc_populate_frame(uvc_stream_handle_t *strmh);
 
 static uvc_streaming_interface_t *_uvc_get_stream_if(uvc_device_handle_t *devh, int interface_idx);
 
@@ -1042,6 +1043,7 @@ void LIBUSB_CALL _uvc_stream_callback(struct libusb_transfer *transfer) {
                     free(transfer->buffer);
                     libusb_free_transfer(transfer);
                     strmh->transfers[i] = NULL;
+                    strmh->transfer_bufs[i] = NULL;
                     break;
                 }
             }
@@ -1077,6 +1079,7 @@ void LIBUSB_CALL _uvc_stream_callback(struct libusb_transfer *transfer) {
                         free(transfer->buffer);
                         libusb_free_transfer(transfer);
                         strmh->transfers[i] = NULL;
+                    strmh->transfer_bufs[i] = NULL;
                         break;
                     }
                 }
@@ -1098,6 +1101,7 @@ void LIBUSB_CALL _uvc_stream_callback(struct libusb_transfer *transfer) {
                     free(transfer->buffer);
                     libusb_free_transfer(transfer);
                     strmh->transfers[i] = NULL;
+                    strmh->transfer_bufs[i] = NULL;
                     break;
                 }
             }
@@ -1202,6 +1206,7 @@ uvc_error_t uvc_stream_open_ctrl(uvc_device_handle_t *devh, uvc_stream_handle_t 
     uvc_stream_handle_t *strmh = NULL;
     uvc_streaming_interface_t *stream_if;
     uvc_error_t ret;
+    int claimed = 0;
 
     UVC_ENTER();
 
@@ -1229,6 +1234,7 @@ uvc_error_t uvc_stream_open_ctrl(uvc_device_handle_t *devh, uvc_stream_handle_t 
     if (ret != UVC_SUCCESS)
         goto fail;
 
+    claimed = 1;
     ret = uvc_stream_ctrl(strmh, ctrl);
     if (ret != UVC_SUCCESS)
         goto fail;
@@ -1242,8 +1248,17 @@ uvc_error_t uvc_stream_open_ctrl(uvc_device_handle_t *devh, uvc_stream_handle_t 
     strmh->meta_outbuf = malloc(LIBUVC_XFER_META_BUF_SIZE);
     strmh->meta_holdbuf = malloc(LIBUVC_XFER_META_BUF_SIZE);
 
-    pthread_mutex_init(&strmh->cb_mutex, NULL);
-    pthread_cond_init(&strmh->cb_cond, NULL);
+    if (!ctrl->dwMaxVideoFrameSize || !strmh->outbuf || !strmh->holdbuf
+        || !strmh->meta_outbuf || !strmh->meta_holdbuf) {
+        ret = UVC_ERROR_NO_MEM;
+        goto fail;
+    }
+    if (pthread_mutex_init(&strmh->cb_mutex, NULL)) { ret = UVC_ERROR_OTHER; goto fail; }
+    if (pthread_cond_init(&strmh->cb_cond, NULL)) {
+        pthread_mutex_destroy(&strmh->cb_mutex);
+        ret = UVC_ERROR_OTHER;
+        goto fail;
+    }
 
     DL_APPEND(devh->streams, strmh);
 
@@ -1253,8 +1268,12 @@ uvc_error_t uvc_stream_open_ctrl(uvc_device_handle_t *devh, uvc_stream_handle_t 
     return UVC_SUCCESS;
 
     fail:
-    if (strmh)
+    if (strmh) {
+        free(strmh->outbuf); free(strmh->holdbuf);
+        free(strmh->meta_outbuf); free(strmh->meta_holdbuf);
+        if (claimed) uvc_release_if(devh, stream_if->bInterfaceNumber);
         free(strmh);
+    }
     UVC_EXIT(ret);
     return ret;
 }
@@ -1314,6 +1333,35 @@ uvc_error_t uvc_stream_start(
         goto fail;
     }
 
+    // The descriptor/mode is stable until this stream is restarted.
+    uvc_frame_t *frame = &strmh->frame;
+    frame->frame_format = strmh->frame_format;
+
+    frame->width = frame_desc->wWidth;
+    frame->height = frame_desc->wHeight;
+
+    switch (frame->frame_format) {
+        case UVC_FRAME_FORMAT_BGR:
+            frame->step = frame->width * 3;
+            break;
+        case UVC_FRAME_FORMAT_YUYV:
+            frame->step = frame->width * 2;
+            break;
+        case UVC_FRAME_FORMAT_NV12:
+        case UVC_FRAME_FORMAT_NV21:
+            frame->step = frame->width;
+            break;
+        case UVC_FRAME_FORMAT_MJPEG:
+            frame->step = 0;
+            break;
+        case UVC_FRAME_FORMAT_H264:
+            frame->step = 0;
+            break;
+        default:
+            frame->step = 0;
+            break;
+    }
+
     // Get the interface that provides the chosen format and frame configuration
     interface_id = strmh->stream_if->bInterfaceNumber;
     interface = &strmh->devh->info->config->interface[interface_id];
@@ -1367,7 +1415,7 @@ uvc_error_t uvc_stream_start(
                 }
             }
 
-            if (endpoint_bytes_per_packet >= config_bytes_per_packet) {
+            if (endpoint_bytes_per_packet && endpoint_bytes_per_packet >= config_bytes_per_packet) {
                 /* Transfers will be at most one frame long: Divide the maximum frame size
                  * by the size of the endpoint and round up */
                 packets_per_transfer = (ctrl->dwMaxVideoFrameSize +
@@ -1401,7 +1449,9 @@ uvc_error_t uvc_stream_start(
         for (transfer_id = 0; transfer_id < LIBUVC_NUM_TRANSFER_BUFS; ++transfer_id) {
             transfer = libusb_alloc_transfer(packets_per_transfer);
             strmh->transfers[transfer_id] = transfer;
+            if (!transfer) { ret = UVC_ERROR_NO_MEM; goto fail; }
             strmh->transfer_bufs[transfer_id] = malloc(total_transfer_size);
+            if (!strmh->transfer_bufs[transfer_id]) { ret = UVC_ERROR_NO_MEM; goto fail; }
 
             libusb_fill_iso_transfer(
                     transfer, strmh->devh->usb_devh, format_desc->parent->bEndpointAddress,
@@ -1416,8 +1466,10 @@ uvc_error_t uvc_stream_start(
              ++transfer_id) {
             transfer = libusb_alloc_transfer(0);
             strmh->transfers[transfer_id] = transfer;
+            if (!transfer) { ret = UVC_ERROR_NO_MEM; goto fail; }
             strmh->transfer_bufs[transfer_id] = malloc(
                     strmh->cur_ctrl.dwMaxPayloadTransferSize);
+            if (!strmh->transfer_bufs[transfer_id]) { ret = UVC_ERROR_NO_MEM; goto fail; }
             libusb_fill_bulk_transfer(transfer, strmh->devh->usb_devh,
                                       format_desc->parent->bEndpointAddress,
                                       strmh->transfer_bufs[transfer_id],
@@ -1434,7 +1486,10 @@ uvc_error_t uvc_stream_start(
      * with the contents of each frame.
      */
     if (cb) {
-        pthread_create(&strmh->cb_thread, NULL, _uvc_user_caller, (void *) strmh);
+        if (pthread_create(&strmh->cb_thread, NULL, _uvc_user_caller, (void *) strmh)) {
+            ret = UVC_ERROR_OTHER;
+            goto fail;
+        }
     }
 
     for (transfer_id = 0; transfer_id < LIBUVC_NUM_TRANSFER_BUFS;
@@ -1446,18 +1501,31 @@ uvc_error_t uvc_stream_start(
         }
     }
 
-    if (ret != UVC_SUCCESS && transfer_id >= 0) {
+    if (ret != UVC_SUCCESS) {
+        const int submitted = transfer_id;
         for (; transfer_id < LIBUVC_NUM_TRANSFER_BUFS; transfer_id++) {
             free(strmh->transfers[transfer_id]->buffer);
             libusb_free_transfer(strmh->transfers[transfer_id]);
-            strmh->transfers[transfer_id] = 0;
+            strmh->transfers[transfer_id] = NULL;
+            strmh->transfer_bufs[transfer_id] = NULL;
         }
+        // Preserve the existing reduced-transfer compatibility path. With zero
+        // successful submissions there can be no frames: stop/join and fail.
+        // Unsubmitted transfers were freed first; they cannot generate callbacks.
+        if (!submitted) { uvc_stream_stop(strmh); return ret; }
         ret = UVC_SUCCESS;
     }
 
     UVC_EXIT(ret);
     return ret;
     fail:
+    for (transfer_id = 0; transfer_id < LIBUVC_NUM_TRANSFER_BUFS; ++transfer_id) {
+        free(strmh->transfer_bufs[transfer_id]);
+        strmh->transfer_bufs[transfer_id] = NULL;
+        if (strmh->transfers[transfer_id]) libusb_free_transfer(strmh->transfers[transfer_id]);
+        strmh->transfers[transfer_id] = NULL;
+    }
+    strmh->user_cb = NULL;
     strmh->running = 0;
     UVC_EXIT(ret);
     return ret;
@@ -1488,6 +1556,7 @@ uvc_error_t uvc_stream_start_iso(
  * @param arg Device handle
  */
 void *_uvc_user_caller(void *arg) {
+    pthread_setname_np(pthread_self(), "uvc_callback");
     uvc_stream_handle_t *strmh = (uvc_stream_handle_t *) arg;
 
     uint32_t last_seq = 0;
@@ -1505,11 +1574,9 @@ void *_uvc_user_caller(void *arg) {
         }
 
         last_seq = strmh->hold_seq;
-        _uvc_populate_frame(strmh);
-
+        uvc_error_t result = _uvc_populate_frame(strmh);
         pthread_mutex_unlock(&strmh->cb_mutex);
-
-        strmh->user_cb(&strmh->frame, strmh->user_ptr);
+        if (result == UVC_SUCCESS) strmh->user_cb(&strmh->frame, strmh->user_ptr);
     } while (1);
 
     return NULL; // return value ignored
@@ -1519,63 +1586,13 @@ void *_uvc_user_caller(void *arg) {
  * @brief Populate the fields of a frame to be handed to user code
  * must be called with stream cb lock held!
  */
-void _uvc_populate_frame(uvc_stream_handle_t *strmh) {
-    uvc_frame_t *frame = &strmh->frame;
-    uvc_frame_desc_t *frame_desc;
-
-    /** @todo this stuff that hits the main config cache should really happen
-     * in start() so that only one thread hits these data. all of this stuff
-     * is going to be reopen_on_change anyway
-     */
-
-    frame_desc = uvc_find_frame_desc(strmh->devh, strmh->cur_ctrl.bFormatIndex,
-                                     strmh->cur_ctrl.bFrameIndex);
-
-    frame->frame_format = strmh->frame_format;
-
-    frame->width = frame_desc->wWidth;
-    frame->height = frame_desc->wHeight;
-
-    switch (frame->frame_format) {
-        case UVC_FRAME_FORMAT_BGR:
-            frame->step = frame->width * 3;
-            break;
-        case UVC_FRAME_FORMAT_YUYV:
-            frame->step = frame->width * 2;
-            break;
-        case UVC_FRAME_FORMAT_NV12:
-        case UVC_FRAME_FORMAT_NV21:
-            frame->step = frame->width;
-            break;
-        case UVC_FRAME_FORMAT_MJPEG:
-            frame->step = 0;
-            break;
-        case UVC_FRAME_FORMAT_H264:
-            frame->step = 0;
-            break;
-        default:
-            frame->step = 0;
-            break;
-    }
-
-    frame->sequence = strmh->hold_seq;
-    frame->capture_time_finished = strmh->capture_time_finished;
-
-    /* copy the image data from the hold buffer to the frame (unnecessary extra buf?) */
-    if (frame->capacity_bytes < strmh->hold_bytes) {
-        frame->data = realloc(frame->data, strmh->hold_bytes);
-        frame->capacity_bytes = strmh->hold_bytes;
-    }
-    frame->data_bytes = strmh->hold_bytes;
-    memcpy(frame->data, strmh->holdbuf, frame->data_bytes);
-
-    if (strmh->meta_hold_bytes > 0) {
-        if (frame->metadata_bytes < strmh->meta_hold_bytes) {
-            frame->metadata = realloc(frame->metadata, strmh->meta_hold_bytes);
-        }
-        frame->metadata_bytes = strmh->meta_hold_bytes;
-        memcpy(frame->metadata, strmh->meta_holdbuf, frame->metadata_bytes);
-    }
+uvc_error_t _uvc_populate_frame(uvc_stream_handle_t *strmh) {
+    uvc_frame_t incoming = strmh->frame;
+    incoming.data = strmh->holdbuf; incoming.data_bytes = strmh->hold_bytes;
+    incoming.metadata = strmh->meta_holdbuf; incoming.metadata_bytes = strmh->meta_hold_bytes;
+    incoming.sequence = strmh->hold_seq;
+    incoming.capture_time_finished = strmh->capture_time_finished;
+    return uvc_duplicate_frame(&incoming, &strmh->frame);
 }
 
 /** Poll for a frame
@@ -1601,7 +1618,8 @@ uvc_error_t uvc_stream_get_frame(uvc_stream_handle_t *strmh,
     pthread_mutex_lock(&strmh->cb_mutex);
 
     if (strmh->last_polled_seq < strmh->hold_seq) {
-        _uvc_populate_frame(strmh);
+        uvc_error_t result = _uvc_populate_frame(strmh);
+        if (result != UVC_SUCCESS) { *frame = NULL; pthread_mutex_unlock(&strmh->cb_mutex); return result; }
         *frame = &strmh->frame;
         strmh->last_polled_seq = strmh->hold_seq;
     } else if (timeout_us != -1) {
@@ -1643,7 +1661,8 @@ uvc_error_t uvc_stream_get_frame(uvc_stream_handle_t *strmh,
         }
 
         if (strmh->last_polled_seq < strmh->hold_seq) {
-            _uvc_populate_frame(strmh);
+            uvc_error_t result = _uvc_populate_frame(strmh);
+            if (result != UVC_SUCCESS) { *frame = NULL; pthread_mutex_unlock(&strmh->cb_mutex); return result; }
             *frame = &strmh->frame;
             strmh->last_polled_seq = strmh->hold_seq;
         } else {
@@ -1697,6 +1716,7 @@ uvc_error_t uvc_stream_stop(uvc_stream_handle_t *strmh) {
                 free(strmh->transfers[i]->buffer);
                 libusb_free_transfer(strmh->transfers[i]);
                 strmh->transfers[i] = NULL;
+                strmh->transfer_bufs[i] = NULL;
             }
         }
     }
@@ -1747,8 +1767,8 @@ void uvc_stream_close(uvc_stream_handle_t *strmh) {
 
     uvc_release_if(strmh->devh, strmh->stream_if->bInterfaceNumber);
 
-    if (strmh->frame.data)
-        free(strmh->frame.data);
+    free(strmh->frame.data);
+    free(strmh->frame.metadata);
 
     free(strmh->outbuf);
     free(strmh->holdbuf);

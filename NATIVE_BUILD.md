@@ -76,3 +76,9 @@ CI/CD remains paused; all checks in this change run locally. / CI/CD 继续暂�
 The NDK 29 size table above records commit `2159e68`. Direct YUYV conversion, direct MJPEG preview decoding and headless routing subsequently change the four-ABI payload to **1,869,372 bytes** (AAR **892,396 bytes**), and the two-ARM native payload to **856,080 bytes**. The same 1,900,000-byte ceiling, per-library budgets, toolchain and alignment/hardening flags apply. See [performance details](PERFORMANCE.md) and [validation](VALIDATION.md).
 
 上方 NDK 29 表格对应 `2159e68`。后续直转/预览/队列优化的四 ABI 原生字节为 **1,869,372**，AAR **892,396**，ARM 双 ABI 原生字节为 **856,080**。沿用原体积门禁、工具链、对齐与安全参数，增长原因及实测结果见性能说明，不将字节变化换算成电功耗。
+
+## Global review candidate / 全局复核候选
+
+The subsequent lifecycle/buffer/error-path fixes produce **1,888,028 native bytes across four ABIs**, **866,444 across the two ARM ABIs**, and a **902,427-byte four-ABI AAR**. Budgets, the 133-symbol boundary per ABI, NDK 29 and 16 KB alignment/hardening remain unchanged. The `c0d095c` CPU comparison remains a historical measurement of that version; this round does not claim a new CPU/power result.
+
+后续生命周期、缓冲区和错误处理修复的四 ABI 原生字节为 **1,888,028**，ARM 双 ABI **866,444**，四 ABI AAR **902,427**。没有放宽体积或导出门禁，保留原 NDK 29 与 16 KB 对齐/安全参数；先前 CPU 对照对应 `c0d095c`，不作为本轮候选新测量结果。

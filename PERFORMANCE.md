@@ -139,3 +139,9 @@ Direct preview removes an intermediate frame/copy, but this run does not establi
 The initial attempt with extra thread statistics exceeded Android's single-log limit and is excluded; measurements were repeated using complete chunked reports.
 Thread names can be inherited, so name-aggregated context-switch records are diagnostic only and are not used to quantify an individual preview worker's wake reduction.
 Raw inputs, driver, reports and failed attempts remain outside the repository. The accepted sample is restored and capture stopped; post-performance resource regression is recorded separately in VALIDATION.md.
+
+## Details following global review
+
+Stable frame geometry/stride is now initialized at stream start instead of looking up descriptors for every frame. The review also fixes JNI callback reentrancy/reference ownership, metadata growth/release, USB startup failures and small-width RGBX conversion bounds. Thread names are assigned at their own entry points to avoid inherited-name ambiguity in later diagnostics.
+
+Current native bytes are **1,888,028 across four ABIs** or **866,444 across the two ARM ABIs**; the AAR is **902,427 bytes**. Existing size and 16 KB alignment gates remain enforced. This round validates correctness, fault recovery and cleanup; it does not repeat the historical `c0d095c` 60-sample CPU comparison or establish a new electrical-power result.

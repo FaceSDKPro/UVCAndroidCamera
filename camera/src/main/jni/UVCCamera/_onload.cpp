@@ -1,3 +1,4 @@
+// Modified by FaceSDKPro, 2026-11-04; see UPSTREAM.md.
 /*
  * UVCCamera
  * library and sample to access to UVC web camera on non-rooted Android device
@@ -39,13 +40,8 @@ jint JNI_OnLoad(JavaVM *vm, void *reserved) {
     if (vm->GetEnv(reinterpret_cast<void **>(&env), JNI_VERSION_1_6) != JNI_OK) {
         return JNI_ERR;
     }
-    // register native methods
-    int result1 = register_uvccamera(env);
-    int result2 = register_uvccontrol(env);
-	setVM(vm);
-#if LOCAL_DEBUG
-    LOGD("JNI_OnLoad:register_uvccamera=%d", result1);
-    LOGD("JNI_OnLoad:register_uvccontrol=%d", result2);
-#endif
+    // Fail library loading immediately if either registration is incomplete.
+    if (register_uvccamera(env) != 0 || register_uvccontrol(env) != 0) return JNI_ERR;
+    setVM(vm);
     return JNI_VERSION_1_6;
 }

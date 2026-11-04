@@ -106,7 +106,7 @@ public final class PerformanceProbeActivity extends Activity {
     void fail(String message){if(done)return;done=true;android.util.Log.e("UvcPerformance","ERROR="+message);if(manager!=null)manager.close();}
     void report() {
         try {
-            JSONObject report=new JSONObject();report.put("width",width);report.put("height",height);report.put("format",format);report.put("frame_type",frameType);report.put("capture_fps",captureFps);report.put("verify_buffers",verifyBuffers);report.put("checked_buffers",checkedBuffers.get());report.put("invalid_buffers",invalidBuffers.get());report.put("preview",preview);report.put("preview_only",previewOnly);report.put("callback_delay_ms",delay);report.put("samples",samples);report.put("images_saved",false);report.put("electrical_power_measured",false);report.put("exposure_locked",false);
+            JSONObject report=new JSONObject();report.put("run_id",getIntent().getStringExtra("runId"));report.put("width",width);report.put("height",height);report.put("format",format);report.put("frame_type",frameType);report.put("capture_fps",captureFps);report.put("verify_buffers",verifyBuffers);report.put("checked_buffers",checkedBuffers.get());report.put("invalid_buffers",invalidBuffers.get());report.put("preview",preview);report.put("preview_only",previewOnly);report.put("callback_delay_ms",delay);report.put("samples",samples);report.put("images_saved",false);report.put("electrical_power_measured",false);report.put("exposure_locked",false);
             android.util.Log.i("UvcPerformance","REPORT="+Base64.encodeToString(report.toString().getBytes("UTF-8"),Base64.NO_WRAP));
         }catch(Exception e){android.util.Log.e("UvcPerformance","report",e);}
     }

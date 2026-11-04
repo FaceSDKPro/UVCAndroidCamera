@@ -95,10 +95,8 @@ uvc_frame_t *uvc_allocate_frame(size_t data_bytes) {
  */
 void uvc_free_frame(uvc_frame_t *frame) {
     if (frame->library_owns_data) {
-        if (frame->capacity_bytes > 0 || frame->data_bytes > 0)
-            free(frame->data);
-        if (frame->metadata_bytes > 0)
-            free(frame->metadata);
+        free(frame->data);
+        free(frame->metadata);
     }
 
     free(frame);
@@ -115,8 +113,17 @@ static inline unsigned char sat(int i) {
  * @param out Duplicate frame
  */
 uvc_error_t uvc_duplicate_frame(uvc_frame_t *in, uvc_frame_t *out) {
+    if (!in || !out || (in->data_bytes && !in->data)
+        || (in->metadata_bytes && !in->metadata)) return UVC_ERROR_INVALID_PARAM;
+    if (in == out) return UVC_SUCCESS;
     if (uvc_ensure_frame_size(out, in->data_bytes) < 0)
         return UVC_ERROR_NO_MEM;
+    if (in->metadata_bytes && (!out->metadata || out->metadata_bytes < in->metadata_bytes)) {
+        if (!out->library_owns_data) return UVC_ERROR_NO_MEM;
+        void *metadata = realloc(out->metadata, in->metadata_bytes);
+        if (!metadata) return UVC_ERROR_NO_MEM;
+        out->metadata = metadata;
+    }
 
     out->width = in->width;
     out->height = in->height;
@@ -127,15 +134,10 @@ uvc_error_t uvc_duplicate_frame(uvc_frame_t *in, uvc_frame_t *out) {
     out->capture_time_finished = in->capture_time_finished;
     out->source = in->source;
 
-    memcpy(out->data, in->data, in->data_bytes);
-
-    if (in->metadata && in->metadata_bytes > 0) {
-        if (out->metadata_bytes < in->metadata_bytes) {
-            out->metadata = realloc(out->metadata, in->metadata_bytes);
-        }
-        out->metadata_bytes = in->metadata_bytes;
-        memcpy(out->metadata, in->metadata, in->metadata_bytes);
-    }
+    if (in->data_bytes) memcpy(out->data, in->data, in->data_bytes);
+    if (in->metadata_bytes) memcpy(out->metadata, in->metadata, in->metadata_bytes);
+    // A pooled frame must not expose metadata from its previous use.
+    out->metadata_bytes = in->metadata_bytes;
 
     return UVC_SUCCESS;
 }
@@ -542,61 +544,37 @@ uvc_error_t uvc_yuyv2rgb565(uvc_frame_t *in, uvc_frame_t *out) {
 * @param out RGBX8888 frame
 */
 uvc_error_t uvc_yuyv2rgbx(uvc_frame_t *in, uvc_frame_t *out) {
-    if (in->frame_format != UVC_FRAME_FORMAT_YUYV)
+    if (!in || !out || !in->data || in->frame_format != UVC_FRAME_FORMAT_YUYV
+        || !in->width || !in->height || (in->width & 1)) return UVC_ERROR_INVALID_PARAM;
+    const size_t width = in->width, height = in->height;
+    if (width > SIZE_MAX / PIXEL_RGBX) return UVC_ERROR_INVALID_PARAM;
+    const size_t source_row = width * PIXEL_YUYV, target_row = width * PIXEL_RGBX;
+    const size_t source_stride = in->step ? in->step : source_row;
+    const size_t target_stride = out->library_owns_data || !out->step ? target_row : out->step;
+    if (source_stride < source_row || target_stride < target_row
+        || height - 1 > (SIZE_MAX - source_row) / source_stride
+        || height - 1 > (SIZE_MAX - target_row) / target_stride
+        || in->data_bytes < (height - 1) * source_stride + source_row)
         return UVC_ERROR_INVALID_PARAM;
-
-    if (uvc_ensure_frame_size(out, in->width * in->height * PIXEL_RGBX) < 0)
+    if (uvc_ensure_frame_size(out, (height - 1) * target_stride + target_row) < 0)
         return UVC_ERROR_NO_MEM;
-
-    out->width = in->width;
-    out->height = in->height;
-    out->frame_format = UVC_FRAME_FORMAT_RGBX;
-    if (out->library_owns_data)
-        out->step = in->width * PIXEL_RGBX;
-    out->sequence = in->sequence;
-    out->capture_time = in->capture_time;
-    out->source = in->source;
-
-    uint8_t *pyuv = in->data;
-    const uint8_t *pyuv_end = pyuv + in->data_bytes - PIXEL8_YUYV;
-    uint8_t *prgbx = out->data;
-    const uint8_t *prgbx_end = prgbx + out->data_bytes - PIXEL8_RGBX;
-
-    // YUYV => RGBX8888
-#if USE_STRIDE
-    if (in->step && out->step && (in->step != out->step)) {
-        const int hh = in->height < out->height ? in->height : out->height;
-        const int ww = in->width < out->width ? in->width : out->width;
-        int h, w;
-        for (h = 0; h < hh; h++) {
-            w = 0;
-            pyuv = in->data + in->step * h;
-            prgbx = out->data + out->step * h;
-            for (; (prgbx <= prgbx_end) && (pyuv <= pyuv_end) && (w < ww) ;) {
-                IYUYV2RGBX_8(pyuv, prgbx, 0, 0);
-
-                prgbx += PIXEL8_RGBX;
-                pyuv += PIXEL8_YUYV;
-                w += 8;
-            }
-        }
-    } else {
-        // compressed format? XXX if only one of the frame in / out has step, this may lead to crash...
-        for (; (prgbx <= prgbx_end) && (pyuv <= pyuv_end) ;) {
+    out->width = in->width; out->height = in->height;
+    out->frame_format = UVC_FRAME_FORMAT_RGBX; out->step = target_stride;
+    out->sequence = in->sequence; out->capture_time = in->capture_time;
+    out->capture_time_finished = in->capture_time_finished; out->source = in->source;
+    for (size_t row = 0; row < height; ++row) {
+        const uint8_t *pyuv = (const uint8_t *)in->data + row * source_stride;
+        uint8_t *prgbx = (uint8_t *)out->data + row * target_stride;
+        size_t x = 0;
+        for (; x + 8 <= width; x += 8) {
             IYUYV2RGBX_8(pyuv, prgbx, 0, 0);
-
-            prgbx += PIXEL8_RGBX;
-            pyuv += PIXEL8_YUYV;
+            pyuv += PIXEL8_YUYV; prgbx += PIXEL8_RGBX;
+        }
+        for (; x < width; x += 2) {
+            IYUYV2RGBX_2(pyuv, prgbx, 0, 0);
+            pyuv += PIXEL2_YUYV; prgbx += PIXEL2_RGBX;
         }
     }
-#else
-    for (; (prgbx <= prgbx_end) && (pyuv <= pyuv_end);) {
-        IYUYV2RGBX_8(pyuv, prgbx, 0, 0);
-
-        prgbx += PIXEL8_RGBX;
-        pyuv += PIXEL8_YUYV;
-    }
-#endif
     return UVC_SUCCESS;
 }
 

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Compare process CPU at fixed capture modes; does not measure electrical power or save images."""
 import argparse
-import base64
-import hashlib
 import json
 from pathlib import Path
 import subprocess
 import time
+import uuid
+from device_check_common import output_directory, file_sha256, require_installed_apk, matching_report
 from run_device_checks import ROOT, PACKAGE, source_fingerprint
 
 
@@ -30,12 +30,12 @@ def main():
         parser.error('--verify-buffers requires pixel callbacks; exclude preview-only')
     if not 1 <= args.capture_fps <= 120:
         parser.error('--capture-fps must be 1..120')
-    output = args.output.resolve()
-    if output == ROOT or ROOT in output.parents:
-        parser.error('--output must be outside the repository')
-    output.mkdir(parents=True, exist_ok=True)
+    try:
+        output = output_directory(args.output)
+    except ValueError as error:
+        parser.error(str(error))
     apk = ROOT / 'sample/build/outputs/apk/deviceTest/sample-deviceTest.apk'
-    identity = {'core_source_sha256': source_fingerprint(), 'diagnostic_apk_sha256': hashlib.sha256(apk.read_bytes()).hexdigest()}
+    identity = {'core_source_sha256': source_fingerprint(), 'diagnostic_apk_sha256': file_sha256(apk)}
     adb = ['adb', '-s', args.serial]
 
     def call(*command, check=True):
@@ -43,12 +43,14 @@ def main():
 
     if not args.skip_install:
         print(call('install', '-r', '-g', str(apk)).strip(), flush=True)
+    require_installed_apk(adb, PACKAGE, identity['diagnostic_apk_sha256'])
     try:
         call('shell', 'pm', 'grant', PACKAGE, 'android.permission.CAMERA')
         for scenario in args.scenarios:
+            run_id = str(uuid.uuid4())
             call('shell', 'am', 'force-stop', PACKAGE)
             thermal_before = call('shell', 'dumpsys', 'thermalservice')
-            cmd = ['shell', 'am', 'start', '-W', '-n', PACKAGE + '/.PerformanceProbeActivity', '--ei', 'width', str(args.width), '--ei', 'height', str(args.height), '--ei', 'duration', str(args.duration), '--ei', 'format', str(args.format), '--ei', 'frameType', str(args.frame_type), '--ei', 'captureFps', str(args.capture_fps)]
+            cmd = ['shell', 'am', 'start', '-W', '-n', PACKAGE + '/.PerformanceProbeActivity', '--es', 'runId', run_id, '--ei', 'width', str(args.width), '--ei', 'height', str(args.height), '--ei', 'duration', str(args.duration), '--ei', 'format', str(args.format), '--ei', 'frameType', str(args.frame_type), '--ei', 'captureFps', str(args.capture_fps)]
             if args.verify_buffers:
                 cmd += ['--ez', 'verifyBuffers', 'true']
             if scenario in ('preview', 'preview-only'):
@@ -66,10 +68,10 @@ def main():
             while time.monotonic() < deadline:
                 logs = call('logcat', '-d', '--pid=' + pid, '-v', 'brief', '-s', 'UvcPerformance:I', '*:S')
                 (output / (scenario + '-log.txt')).write_text(logs)
-                lines = [line.split('REPORT=', 1)[1] for line in logs.splitlines() if 'REPORT=' in line]
-                if lines:
-                    report = json.loads(base64.b64decode(lines[-1]).decode())
+                report = matching_report(logs, run_id)
+                if report is not None:
                     report.update(identity)
+                    report['apk_unchanged_after_test'] = identity['diagnostic_apk_sha256'] == file_sha256(apk)
                     report['source_unchanged_after_test'] = identity['core_source_sha256'] == source_fingerprint()
                     if args.verify_buffers and (report.get('invalid_buffers', 1) != 0 or report.get('checked_buffers', 0) < 6):
                         raise RuntimeError('Frame format contract failed: ' + str(report))
@@ -78,8 +80,8 @@ def main():
                     (output / (scenario + '.json')).write_text(json.dumps(report, indent=2) + '\n')
                     (output / (scenario + '-thermal-before.txt')).write_text(thermal_before)
                     (output / (scenario + '-thermal-after.txt')).write_text(call('shell', 'dumpsys', 'thermalservice'))
-                    if not report['source_unchanged_after_test']:
-                        raise RuntimeError('Library source changed during measurement')
+                    if not report['source_unchanged_after_test'] or not report['apk_unchanged_after_test']:
+                        raise RuntimeError('Library source or APK changed during measurement')
                     if any(min(sample['callback_fps']) <= 0 for sample in report['samples']):
                         raise RuntimeError('A camera stopped delivering frames')
                     print(scenario + ': ' + str([round(s['cpu_percent_one_core'], 1) for s in report['samples']]) + ' percent of one CPU core', flush=True)

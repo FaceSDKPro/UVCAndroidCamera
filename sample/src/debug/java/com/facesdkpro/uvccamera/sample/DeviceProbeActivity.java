@@ -157,7 +157,7 @@ public final class DeviceProbeActivity extends Activity {
     int captureThreads(){
         int count=0;File[] tasks=new File("/proc/self/task").listFiles();if(tasks==null)return -1;
         for(File task:tasks)try(BufferedReader input=new BufferedReader(new FileReader(new File(task,"comm")))){
-            String name=input.readLine();if("UVC-commands".equals(name)||"USBMonitor".equals(name)||"preview_thread".equals(name)||"capture_thread".equals(name)||"libusb_event".equals(name))count++;
+            String name=input.readLine();if("UVC-commands".equals(name)||"USBMonitor".equals(name)||"preview_thread".equals(name)||"capture_thread".equals(name)||"libusb_event".equals(name)||"uvc_callback".equals(name))count++;
         }catch(Exception ignored){}
         return count;
     }
@@ -167,7 +167,7 @@ public final class DeviceProbeActivity extends Activity {
         check("usb_released",value(closedFds,"usb")==0,"usb_fds="+value(closedFds,"usb"));
         int threads=captureThreads();check("capture_threads_released",threads==0,"remaining="+threads);
         int failures=0;for(int i=0;i<checks.length();i++)if(!checks.getJSONObject(i).getBoolean("passed"))failures++;
-        JSONObject report=new JSONObject();report.put("checks",checks);report.put("failed",failures);report.put("passed",checks.length()-failures);report.put("images_saved",false);
+        JSONObject report=new JSONObject();report.put("run_id",getIntent().getStringExtra("runId"));report.put("checks",checks);report.put("failed",failures);report.put("passed",checks.length()-failures);report.put("images_saved",false);
         report.put("manual_hotplug","not_executed");report.put("hardware_sync","not_executed");
         report.put("fd_snapshots",fdSnapshots);
         try(FileOutputStream stream=openFileOutput("uvc-acceptance.json",MODE_PRIVATE)){stream.write(report.toString(2).getBytes("UTF-8"));}

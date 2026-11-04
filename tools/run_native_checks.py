@@ -3,7 +3,6 @@
 Requires a built Release AAR, its pinned NDK, and host cjpeg (libjpeg-turbo).
 """
 import argparse
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -12,6 +11,7 @@ import shutil
 import subprocess
 import zipfile
 from run_device_checks import ROOT, source_fingerprint
+from device_check_common import file_sha256
 
 
 def main():
@@ -35,10 +35,14 @@ def main():
     native = ROOT / 'camera/src/main/jni'
     before = source_fingerprint()
     aar = ROOT / 'camera/build/outputs/aar/camera-release.aar'
+    aar_sha = file_sha256(aar)
+    libraries = []
     with zipfile.ZipFile(aar) as archive:
         for name in archive.namelist():
             if name.startswith('jni/arm64-v8a/') and name.endswith('.so'):
-                (output / Path(name).name).write_bytes(archive.read(name))
+                library = output / Path(name).name
+                library.write_bytes(archive.read(name))
+                libraries.append(library)
     rgb = bytes(c for y in range(8) for x in range(34) for c in ((x * 7 + y * 13) % 256, (x * 3 + y * 41) % 256, (x * 11 + y * 5) % 256))
     ppm = output / 'synthetic.ppm'; ppm.write_bytes(b'P6\n34 8\n255\n' + rgb)
     jpeg = output / 'synthetic.jpg'
@@ -48,19 +52,46 @@ def main():
     command += ['-I' + str(path) for path in includes]
     command += [str(ROOT / 'tools/native/frame_pipeline_test.cpp'), str(native / 'UVCCamera/ConvertHelper.cpp'), '-L' + str(output), '-luvc', '-lyuv', '-ljpeg-turbo212', '-lusb1.0', '-llog', '-Wl,--gc-sections,-z,max-page-size=16384', '-Wl,-rpath,$ORIGIN', '-o', str(output / 'frame_pipeline_test')]
     subprocess.run(command, check=True)
+    # Fault tests compile the production sources separately. Disable inlining/
+    # allocator builtins so linker --wrap injection reaches the intended calls.
+    cflags = ['-O2', '-fno-inline', '-fno-builtin-malloc', '-fno-builtin-calloc', '-fno-builtin-realloc', '-fno-builtin-free', '-DLOG_NDEBUG', '-ffunction-sections', '-fdata-sections']
+    include_flags = ['-I' + str(path) for path in includes]
+    objects = []
+    for source in ['frame', 'stream']:
+        target = output / (source + '.o')
+        subprocess.run([str(host / 'bin/aarch64-linux-android23-clang')] + cflags + include_flags + ['-c', str(native / ('libuvc/src/' + source + '.c')), '-o', str(target)], check=True)
+        objects.append(str(target))
+    base = command[:command.index(str(ROOT / 'tools/native/frame_pipeline_test.cpp'))]
+    tests = ['callback_ownership_test', 'jni_registration_test', 'frame_memory_test', 'stream_failure_test']
+    for test in tests:
+        cmd = base + [str(ROOT / ('tools/native/' + test + '.cpp'))]
+        if test == 'callback_ownership_test':
+            cmd += [str(native / 'UVCCamera/UVCButtonCallback.cpp'), str(native / 'UVCCamera/UVCStatusCallback.cpp')]
+        elif test == 'jni_registration_test':
+            cmd += [str(native / 'UVCCamera/_onload.cpp')]
+        else:
+            cmd += objects[:1] if test == 'frame_memory_test' else objects
+            wraps = ['realloc', 'free'] if test == 'frame_memory_test' else ['malloc', 'calloc', 'realloc', 'pthread_create', 'uvc_stream_ctrl']
+            cmd += ['-Wl,--wrap=' + name for name in wraps]
+        cmd += ['-L' + str(output), '-lusb1.0', '-llog', '-Wl,--gc-sections,-z,max-page-size=16384', '-Wl,-rpath,$ORIGIN', '-o', str(output / test)]
+        subprocess.run(cmd, check=True)
     adb = ['adb', '-s', args.serial]
     remote = '/data/local/tmp/uvc-native-pipeline-check'
     def call(*parts):
         return subprocess.check_output(adb + list(parts), text=True, stderr=subprocess.STDOUT, timeout=60)
     try:
         call('shell', 'mkdir', '-p', remote)
-        for path in [output / 'frame_pipeline_test', jpeg] + sorted(output.glob('*.so')):
+        for path in [output / 'frame_pipeline_test', jpeg] + [output / test for test in tests] + libraries:
             call('push', str(path), remote + '/')
         call('shell', 'chmod', '700', remote + '/frame_pipeline_test')
+        for test in tests:
+            call('shell', 'chmod', '700', remote + '/' + test)
         raw = call('shell', 'env', 'LD_LIBRARY_PATH=' + remote, remote + '/frame_pipeline_test', remote + '/synthetic.jpg')
         report = json.loads(raw)
-        report.update({'core_source_sha256': before, 'source_unchanged': before == source_fingerprint(), 'aar_sha256': hashlib.sha256(aar.read_bytes()).hexdigest(), 'ndk_version': ndk_version})
-        assert report['failed'] == 0 and report['source_unchanged']
+        report['fault_checks'] = {test: json.loads(call('shell', 'env', 'LD_LIBRARY_PATH=' + remote, remote + '/' + test)) for test in tests}
+        report.update({'core_source_sha256': before, 'source_unchanged': before == source_fingerprint(), 'aar_sha256': aar_sha, 'aar_unchanged': aar_sha == file_sha256(aar), 'ndk_version': ndk_version})
+        assert report['failed'] == 0 and report['source_unchanged'] and report['aar_unchanged']
+        assert all(item['failed'] == 0 for item in report['fault_checks'].values())
         (output / 'native-report.json').write_text(json.dumps(report, indent=2) + '\n')
         print(json.dumps(report, indent=2))
     finally:
