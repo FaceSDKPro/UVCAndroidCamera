@@ -1,5 +1,17 @@
 # 验证记录
 
+## 文档归档与横屏预览图（2026-11-04）
+
+- 将根目录的 `NATIVE_BUILD.md`、两份 `PERFORMANCE`、`UPSTREAM.md` 和本验收记录移至 `docs/`；保留原内容与历史事实。根目录保留入口 README、LICENSE/NOTICE、协作约定和构建配置。中英文 README 增加目录导航，并在摄像头类型说明后展示同一张横屏双路预览图。
+- 按用户本次明确要求保存公开 README 配图：Android `screencap` 原始 PNG，**3200×2136，1,009,922 字节**，路径 `docs/images/dual-preview-landscape.png`。目视核对为无人场景，没有显示人脸或身份文本；图像未经生成、替换或后处理。
+- Xiaomi 24091RPADC / Android 16，RP26PWD RGB 与 RP26LD IR，各请求 640×480 MJPEG 30 FPS；截图显示实际 **30.0 / 29.0 FPS**、累计 **3827 / 3719 帧**。这是两个独立 UVC 设备的真实预览，不是算法或活体结论。使用既有已验收 Demo APK，SHA-256 为 `64400c7bf6d8f8cdaad6fc89a5ef68ad406f81d9b56c089d3b2f302334722ced`，结束时重新核对安装字节。
+- 源码门禁仅为这一个经审阅截图增加固定路径与 SHA-256 例外，继续拒绝其他二进制、修改后的截图、签名材料和凭据形状内容。**12 项 Python 检查通过**，其中新增 6 项源门禁正/负向检查。
+- 仓库与实际解压的 SDK ZIP 各 **52 处相对文档/图片链接通过**；SDK 的 **44 份清单文件**逐一校验摘要，文档和配图保留相同目录结构。ZIP 中 Wrapper 自带 0755 权限；首次 Python 解压验证未恢复执行位，按 ZIP 元数据恢复后，独立 AAR 消费 Demo 的离线 R8 构建与 Lint 通过。
+- 没有修改 SDK/Android 源码或 NDK 参数；核心指纹、AAR 和 `.so` 字节保持既有 0.3.0 值。当前 AAR/独立 APK 的权限、体积、导出及 16 KB ELF/ZIP 对齐检查通过。复用既有 32 项 Demo 及核心验收，不把本次截图当作重跑全部测试。
+- 拍摄后已停止采集并恢复原旋转及低亮度设置；除本次明确请求的 README 配图外，运行记录和候选保存在仓库外。HiFace / HelloFace 未修改，CI/CD 继续暂停。
+
+公开截图 SHA-256：`c0bdda37121616e59904e7e4aa7b911871ba8f8fc734aa01bca17cf804d58ce4`。
+
 ## Demo 代码整理与关闭时序（2026-11-04）
 
 - 统一五个 Demo Java 文件的 Android 风格格式；抽出共用 `DeviceSelectors`，按 USB 身份保存/恢复选择，设备列表未变化时复用适配器。参数弹窗取消按设备名恢复，不沿用可能失效的列表下标。

@@ -24,6 +24,13 @@ RGB/IR 角色按 VID/PID 或用户配置绑定；插拔后重新枚举，不能�
 或在同一路流中交替输出 RGB/IR 的设备；同一 USB 设备内的多个 VideoStreaming 接口也尚未适配。
 两路独立视频流的帧配对属于软件时间关联，不代表硬件同步曝光。
 
+## 双目预览
+
+![RGB 与近红外两路独立视频流的横屏预览](docs/images/dual-preview-landscape.png)
+
+平板横屏实拍：左侧为 RGB 可见光，右侧为近红外（IR），来自两个独立 UVC 设备。
+截图展示双路预览、独立参数入口及实际帧率；识别与活体判断由上层 SDK 实现。
+
 ## SDK 与 Demo 交付
 
 当前本地 SDK 版本 **0.3.0**，供 HelloFace SDK 集成开发人员引入；当前没有接入或修改 HelloFace。
@@ -47,7 +54,7 @@ RGB/IR 角色按 VID/PID 或用户配置绑定；插拔后重新枚举，不能�
 
 保留独立 USB 摄像头并发、单路预览、无预览采集、像素帧回调、UVC 标准设备控制、权限队列及插拔通知。
 删除拍照保存、录像、录音、编码器、Java OpenGL 多画面渲染和旧示例。库无第三方 Java 运行时依赖，
-仅声明 CAMERA 权限及 USB Host 能力。完整分析见 [UPSTREAM.md](UPSTREAM.md)。
+仅声明 CAMERA 权限及 USB Host 能力。完整分析见 [UPSTREAM.md](docs/UPSTREAM.md)。
 
 ## 优化与实测
 
@@ -60,7 +67,7 @@ RGB/IR 角色按 VID/PID 或用户配置绑定；插拔后重新枚举，不能�
 
 采集路径版本 `c0d095c` 曾在 Xiaomi 24091RPADC（Android 16）和两台 RGB/IR 摄像头上，以 640×480、双路 YUYV 请求各 15 FPS、固定 10 ms 曝光进行对照，
 **平均每交付一帧的进程 CPU 时间由 28.30 ms 降至 25.46 ms，约减少 10%**，实际吞吐略高于基线。
-该版本的完整对照共 60 段样本；MJPEG 各场景的 CPU 区间有重叠，整机电功耗尚未测量。条件、帧率和数据见 [性能记录](PERFORMANCE.zh-CN.md)。
+该版本的完整对照共 60 段样本；MJPEG 各场景的 CPU 区间有重叠，整机电功耗尚未测量。条件、帧率和数据见 [性能记录](docs/PERFORMANCE.zh-CN.md)。
 
 当前 NDK 29 构建体积：
 
@@ -71,7 +78,7 @@ RGB/IR 角色按 VID/PID 或用户配置绑定；插拔后重新枚举，不能�
 | SDK 0.3.0 四 ABI Release AAR，ZIP 包 | 926,034 |
 
 逐库体积预算和 **1,900,000 字节**原生总量上限持续检查；全部 20 个 `.so` 的 **16 KB ELF 对齐**及示例 APK 的 **16 KB ZIP 对齐**已通过。
-16 KB 页真机运行仍待验证。工具链、C++ 运行时取舍及检查方法见 [NATIVE_BUILD.md](NATIVE_BUILD.md)。
+16 KB 页真机运行仍待验证。工具链、C++ 运行时取舍及检查方法见 [NATIVE_BUILD.md](docs/NATIVE_BUILD.md)。
 
 ## 构建
 
@@ -91,7 +98,7 @@ python3 tools/check_artifact.py camera/build/outputs/aar/camera-release.aar --ap
 python3 tools/check_artifact.py camera/build/outputs/aar/camera-release.aar --abis arm64-v8a armeabi-v7a
 ```
 
-使用轻量 `system` C++ 运行时满足基础 new/delete，不传递 STL 对象或异常；原因和后续迁移约束见 [原生构建说明](NATIVE_BUILD.md)。
+使用轻量 `system` C++ 运行时满足基础 new/delete，不传递 STL 对象或异常；原因和后续迁移约束见 [原生构建说明](docs/NATIVE_BUILD.md)。
 制品检查同时核对权限、原生导出、依赖、体积、ELF/APK 对齐，以及 APK 与 AAR 中的原生库字节一致性。
 
 必要时可显式指定 Google Maven 镜像：
@@ -169,7 +176,7 @@ IR 人脸框、双路同人关联及活体算法由上层 SDK 管理。
 
 **YUYV 的像素值约定**：NV12/NV21 直转保留源 Y，并对相邻两行色度平均；GRAY8 无论有无预览都保留源 Y。
 这些数值与旧的 YUYV→RGBX→NV 绕行结果可能不同。MJPEG 的 NV12/NV21 仍使用原颜色转换；JPEG 直接 GRAY8 也不保证等于该 NV21 的 Y。
-接入 SDK 时按实际输入范围使用像素；详细说明见 [PERFORMANCE.zh-CN.md](PERFORMANCE.zh-CN.md)。
+接入 SDK 时按实际输入范围使用像素；详细说明见 [PERFORMANCE.zh-CN.md](docs/PERFORMANCE.zh-CN.md)。
 
 `UvcCameraManager` 默认使用 USB 广播与五秒一次的兜底扫描。
 `new UvcCameraManager(context, listener, devicePollMillis)` 可设为 `0`（仅广播及首次扫描），或至少 1000 毫秒的间隔。
@@ -179,7 +186,7 @@ IR 人脸框、双路同人关联及活体算法由上层 SDK 管理。
 
 2026-11-04 在上述平板及 RGB/IR 摄像头上，59 项设备检查、24 组双路模式及 10 个切换阶段通过；
 另有 120 组 YUYV 数值组合、6 组 JPEG 步幅/异常恢复检查通过。性能测量后，59 项资源回归再次通过。
-后续全局复核增加了 JNI 重入/引用、分配失败、USB 提交及 RGBX 步幅边界检查；完整证据范围见 [VALIDATION.md](VALIDATION.md)。
+后续全局复核增加了 JNI 重入/引用、分配失败、USB 提交及 RGBX 步幅边界检查；完整证据范围见 [VALIDATION.md](docs/VALIDATION.md)。
 
 `sample` 默认进入 SDK Demo：明确选择 RGB/IR，每路独立设置分辨率、采集 FPS、MJPEG/YUYV 和旋转角度；
 深色面板显示 RGB 预览、旋转后的 NV21/GRAY8 宽高、实际采集 FPS、帧对速率及回调到达时间差，IR 无预览。
@@ -203,7 +210,21 @@ python3 tools/run_device_checks.py --serial YOUR_ADB_SERIAL --output /path/outsi
 设备需要允许安装、CAMERA 和两路 USB 访问。脚本验证双路无预览出帧、反复开关、错误恢复、
 Buffer/GRAY8 契约、设备参数读取、两路预览更新及资源释放，只保存统计和日志，不保存图像。
 文件描述符按 USB/事件/管道/图形等类型分别记录，避免将 Android 图形缓冲缓存误判为采集连接泄漏。
-物理拔插、长期稳定性、硬件同步及 16 KB 真机运行需分别验收，不能由短时采集或 ELF 对齐检查代替。验收记录见 [VALIDATION.md](VALIDATION.md)。
+物理拔插、长期稳定性、硬件同步及 16 KB 真机运行需分别验收，不能由短时采集或 ELF 对齐检查代替。验收记录见 [VALIDATION.md](docs/VALIDATION.md)。
+
+## 工程目录与文档
+
+- `camera/`：摄像头 SDK；`sample/`：演示与设备验收入口。
+- `docs/`：专题文档与 README 配图；`tools/`：本地审计、验收和打包工具。
+- 根目录保留中英文 README、许可证、协作约定和必要的 Gradle 构建配置；未另行注明时，命令从工程根目录执行。
+
+| 文档 | 内容 |
+|---|---|
+| [SDK 接入](docs/SDK_INTEGRATION.zh-CN.md) | AAR 引入、RGB/IR 帧契约、旋转与生命周期 |
+| [原生构建](docs/NATIVE_BUILD.md) | NDK、ABI、体积预算与 16 KB 对齐 |
+| [性能记录](docs/PERFORMANCE.zh-CN.md) | 对照条件、像素语义和测量结果 |
+| [上游裁剪分析](docs/UPSTREAM.md) | 保留/删除的功能及实现取舍 |
+| [验收记录](docs/VALIDATION.md) | 历史候选、真机结果和未执行范围 |
 
 ## 来源与许可
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Audit the exact staged/committed source payload before uploading it."""
 from pathlib import Path
+import hashlib
 import re
 import subprocess
 
@@ -13,6 +14,10 @@ if subprocess.run(["git", "diff", "--quiet"], cwd=ROOT).returncode:
     raise SystemExit("Unstaged tracked changes remain; audit the intended final snapshot")
 bad_suffixes = {".apk", ".aab", ".aar", ".so", ".a", ".o", ".jks", ".keystore", ".p12", ".pfx", ".pem", ".db", ".log"}
 secret = re.compile(rb"-----BEGIN (?:[A-Z ]*PRIVATE KEY)-----|AKIA[A-Z0-9]{16}|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}")
+# User-requested, visually reviewed public screenshot. Do not allow arbitrary image binaries.
+public_images = {
+    "docs/images/dual-preview-landscape.png": "c0bdda37121616e59904e7e4aa7b911871ba8f8fc734aa01bca17cf804d58ce4",
+}
 failures = []
 for name in names:
     path = ROOT / name
@@ -24,7 +29,10 @@ for name in names:
         failures.append(name + ": generated/private payload")
     if path.name in {"local.properties", "signing.properties", "id_rsa", "id_ed25519"}:
         failures.append(name + ": local configuration/credential")
-    if b"\0" in data and name != "gradle/wrapper/gradle-wrapper.jar":
+    if name in public_images:
+        if hashlib.sha256(data).hexdigest() != public_images[name]:
+            failures.append(name + ": public screenshot checksum mismatch")
+    elif b"\0" in data and name != "gradle/wrapper/gradle-wrapper.jar":
         failures.append(name + ": unexpected binary")
     if secret.search(data):
         failures.append(name + ": credential-shaped content")

@@ -82,9 +82,11 @@ def main():
         copy(aar, stage / 'sdk' / aar.name)
         copy(source_repo / (stem + '-sources.jar'), stage / 'sdk' / (stem + '-sources.jar'))
         copy(apk, stage / 'demo' / ('UvcCameraDemo-' + args.version + '.apk'))
-        for name in ['README.md', 'README.zh-CN.md', 'LICENSE', 'NOTICE', 'UPSTREAM.md', 'NATIVE_BUILD.md',
-                     'PERFORMANCE.md', 'PERFORMANCE.zh-CN.md', 'VALIDATION.md',
-                     'docs/SDK_INTEGRATION.md', 'docs/SDK_INTEGRATION.zh-CN.md']:
+        for name in ['README.md', 'README.zh-CN.md', 'LICENSE', 'NOTICE',
+                     'docs/UPSTREAM.md', 'docs/NATIVE_BUILD.md',
+                     'docs/PERFORMANCE.md', 'docs/PERFORMANCE.zh-CN.md', 'docs/VALIDATION.md',
+                     'docs/SDK_INTEGRATION.md', 'docs/SDK_INTEGRATION.zh-CN.md',
+                     'docs/images/dual-preview-landscape.png']:
             copy(ROOT / name, stage / name)
         # Standalone example builds against the packaged Maven AAR; no :camera source project exists here.
         demo = stage / 'demo-source'

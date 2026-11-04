@@ -3,6 +3,7 @@ gradlew text eol=lf
 *.sh text eol=lf
 *.py text eol=lf
 *.jar -text
+*.png -text
 # Preserve the imported native/legacy source and license bytes, including existing CRLF.
 camera/src/main/jni/** -text
 camera/src/main/java/com/serenegiant/** -text

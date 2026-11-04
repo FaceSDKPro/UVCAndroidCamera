@@ -25,6 +25,13 @@ Bind RGB/IR roles by VID/PID or explicit user configuration, enumerate again aft
 or alternating RGB/IR frames within one stream. Multiple VideoStreaming interfaces within a single USB device are also not yet supported.
 Pairing two independent streams is software time association, not proof of hardware-synchronized exposure.
 
+## Dual-camera preview
+
+![Landscape preview of independent RGB and near-infrared streams](docs/images/dual-preview-landscape.png)
+
+Captured on the tablet in landscape: visible-light RGB on the left and near-infrared (IR) on the right, from two independent UVC devices.
+The screenshot shows dual previews, per-camera settings and observed FPS; recognition and liveness decisions belong to the integration SDK.
+
 ## SDK and Demo delivery
 
 The local SDK version is **0.3.0**, prepared for HelloFace SDK integrators. HelloFace has not been modified or linked.
@@ -50,7 +57,7 @@ The library retains concurrent independent USB devices, one preview surface per 
 pixel callbacks, standard UVC controls, queued permission requests and attach/detach notifications.
 Photo storage, video/audio recording, encoders, Java OpenGL multi-output rendering and legacy demos have been removed.
 There are no third-party Java runtime dependencies. The manifest declares only CAMERA permission and USB Host capability.
-See [UPSTREAM.md](UPSTREAM.md) for the trimming analysis (Chinese).
+See [UPSTREAM.md](docs/UPSTREAM.md) for the trimming analysis (Chinese).
 
 ## Optimizations and measurements
 
@@ -64,7 +71,7 @@ The capture pipeline reduces decoding, memory copies and thread handoffs for con
 The capture-path version `c0d095c` was measured on a Xiaomi 24091RPADC (Android 16) with RGB/IR cameras: dual 640×480 YUYV capture requested at 15 FPS per camera and fixed 10 ms exposure reduced
 **mean process CPU time per delivered frame from 28.30 ms to 25.46 ms, about 10%**, with slightly higher achieved throughput.
 That version's full comparison contains 60 samples. MJPEG scenario ranges overlap; electrical power has not been measured.
-See [performance records](PERFORMANCE.md) for conditions, achieved FPS and results.
+See [performance records](docs/PERFORMANCE.md) for conditions, achieved FPS and results.
 
 Current NDK 29 build sizes:
 
@@ -76,7 +83,7 @@ Current NDK 29 build sizes:
 
 Per-library budgets and the **1,900,000-byte** native payload ceiling remain enforced.
 All 20 libraries pass **16 KB ELF alignment**, and the sample APKs pass **16 KB ZIP alignment**.
-Runtime validation on a 16 KB page-size device remains outstanding. See [NATIVE_BUILD.md](NATIVE_BUILD.md) for toolchain/runtime choices and checks.
+Runtime validation on a 16 KB page-size device remains outstanding. See [NATIVE_BUILD.md](docs/NATIVE_BUILD.md) for toolchain/runtime choices and checks.
 
 ## Build
 
@@ -97,7 +104,7 @@ API 21 library compatibility and x86 emulator support remain available. For Hell
 python3 tools/check_artifact.py camera/build/outputs/aar/camera-release.aar --abis arm64-v8a armeabi-v7a
 ```
 
-The lightweight `system` C++ runtime provides basic new/delete; STL objects and exceptions do not cross libraries. See [native build notes](NATIVE_BUILD.md) for the rationale and future migration constraints.
+The lightweight `system` C++ runtime provides basic new/delete; STL objects and exceptions do not cross libraries. See [native build notes](docs/NATIVE_BUILD.md) for the rationale and future migration constraints.
 The artifact audit checks permissions, native exports, dependencies, size, ELF/APK alignment and matching native bytes between the APK and AAR.
 
 An explicit Google Maven mirror can be supplied when needed:
@@ -180,7 +187,7 @@ IR face boxes, cross-camera face association and liveness algorithms belong to t
 
 **YUYV pixel semantics**: direct NV12/NV21 preserves source Y and vertically averages chroma; GRAY8 preserves source Y with or without a preview.
 Values can differ from the old YUYV→RGBX→NV round trip. MJPEG NV12/NV21 keeps its prior color conversion; directly decoded JPEG GRAY8 is not guaranteed to equal that NV21 Y plane either.
-Use the actual input range when integrating an SDK. See [PERFORMANCE.md](PERFORMANCE.md) for details.
+Use the actual input range when integrating an SDK. See [PERFORMANCE.md](docs/PERFORMANCE.md) for details.
 
 `UvcCameraManager` defaults to USB broadcasts plus a five-second fallback scan.
 `new UvcCameraManager(context, listener, devicePollMillis)` accepts `0` for broadcasts plus the initial scan, or an interval of at least 1000 ms.
@@ -190,7 +197,7 @@ Verify attach broadcasts on the target system before disabling polling; when bro
 
 On 2026-11-04, the tablet and RGB/IR cameras above passed 59 device checks, 24 dual-camera mode cases and 10 transition phases.
 Another 120 YUYV numerical combinations and six JPEG stride/error-recovery groups passed. All 59 resource checks passed again after performance measurements.
-Subsequent global review adds JNI reentrancy/reference, allocation-failure, USB-submission and RGBX stride-boundary checks. See [VALIDATION.md](VALIDATION.md) for the complete evidence scope (Chinese).
+Subsequent global review adds JNI reentrancy/reference, allocation-failure, USB-submission and RGBX stride-boundary checks. See [VALIDATION.md](docs/VALIDATION.md) for the complete evidence scope (Chinese).
 
 `sample` opens the SDK Demo by default: explicit RGB/IR selection, independent resolution, capture FPS, MJPEG/YUYV and rotation settings,
 a dark dashboard with RGB preview, rotated NV21/GRAY8 dimensions, observed capture FPS, pair rate and callback-arrival skew, with headless IR.
@@ -216,7 +223,21 @@ The script checks simultaneous headless capture, repeated open/close, error reco
 device parameter reads, both preview updates and resource cleanup. It saves statistics and logs, not camera images.
 File descriptors are recorded by category, including USB, events, pipes and graphics, so Android graphics buffer caches are not mistaken for capture connection leaks.
 Physical hotplug, long-duration reliability, hardware synchronization and operation on a 16 KB page-size device require separate validation.
-Short capture tests and ELF alignment checks do not replace those tests. See [VALIDATION.md](VALIDATION.md) for the recorded validation scope (Chinese).
+Short capture tests and ELF alignment checks do not replace those tests. See [VALIDATION.md](docs/VALIDATION.md) for the recorded validation scope (Chinese).
+
+## Project layout and documentation
+
+- `camera/`: camera SDK; `sample/`: demonstration and device acceptance entry points.
+- `docs/`: topic guides and README images; `tools/`: local audit, acceptance and packaging tools.
+- The root keeps bilingual READMEs, licenses, collaboration instructions and required Gradle configuration. Unless noted otherwise, run commands from the project root.
+
+| Document | Contents |
+|---|---|
+| [SDK integration](docs/SDK_INTEGRATION.md) | AAR setup, RGB/IR frame contracts, rotation and lifecycle |
+| [Native build](docs/NATIVE_BUILD.md) | NDK, ABIs, size budgets and 16 KB alignment |
+| [Performance records](docs/PERFORMANCE.md) | Comparison conditions, pixel semantics and measurements |
+| [Upstream trimming analysis](docs/UPSTREAM.md) | Retained/removed features and implementation choices (Chinese) |
+| [Validation records](docs/VALIDATION.md) | Historical candidates, device results and unexecuted scope (Chinese) |
 
 ## Origin and licenses
 
