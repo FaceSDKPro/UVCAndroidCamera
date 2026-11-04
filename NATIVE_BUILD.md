@@ -70,3 +70,9 @@ Local checks also cross-check ELF metadata with NDK llvm-readelf/llvm-nm and APK
 Misaligned ELF/APK and oversized candidates are rejected. The connected tablet uses 4 KB pages; runtime validation on a 16 KB device remains outstanding.
 
 CI/CD remains paused; all checks in this change run locally. / CI/CD 继续暂停，本次检查均在本地执行。
+
+## Subsequent capture-path changes / 后续采集路径变化
+
+The NDK 29 size table above records commit `2159e68`. Direct YUYV conversion, direct MJPEG preview decoding and headless routing subsequently change the four-ABI payload to **1,869,372 bytes** (AAR **892,396 bytes**), and the two-ARM native payload to **856,080 bytes**. The same 1,900,000-byte ceiling, per-library budgets, toolchain and alignment/hardening flags apply. See [performance details](PERFORMANCE.md) and [validation](VALIDATION.md).
+
+上方 NDK 29 表格对应 `2159e68`。后续直转/预览/队列优化的四 ABI 原生字节为 **1,869,372**，AAR **892,396**，ARM 双 ABI 原生字节为 **856,080**。沿用原体积门禁、工具链、对齐与安全参数，增长原因及实测结果见性能说明，不将字节变化换算成电功耗。

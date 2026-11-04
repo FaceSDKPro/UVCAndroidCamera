@@ -1,5 +1,6 @@
-// Modified by FaceSDKPro, 2026-11-03; see UPSTREAM.md for changes.
+// Modified by FaceSDKPro, 2026-11-04; see UPSTREAM.md for changes.
 #include "ConvertHelper.h"
+#include "YuyvToNv.h"
 
 MjpegDecoder::~MjpegDecoder() {
     if (handle) tjDestroy(handle);
@@ -18,10 +19,12 @@ int MjpegDecoder::decode(uvc_frame_t *in, uvc_frame_t *out, bool gray) {
         return UVC_ERROR_INVALID_PARAM;
     }
     const int bytes = gray ? 1 : 4;
-    if (uvc_ensure_frame_size(out, static_cast<size_t>(width) * height * bytes) < 0)
+    const int pitch = out->library_owns_data ? width * bytes : static_cast<int>(out->step);
+    if (pitch < width * bytes) return UVC_ERROR_INVALID_PARAM;
+    if (uvc_ensure_frame_size(out, static_cast<size_t>(pitch) * height) < 0)
         return UVC_ERROR_NO_MEM;
     if (tjDecompress2(handle, static_cast<unsigned char *>(in->data), in->data_bytes,
-                      static_cast<unsigned char *>(out->data), width, width * bytes, height,
+                      static_cast<unsigned char *>(out->data), width, pitch, height,
                       gray ? TJPF_GRAY : TJPF_RGBX, 0) < 0) {
         // A malformed camera frame must not poison subsequent frames on the reused instance.
         tjDestroy(handle); handle = nullptr;
@@ -29,7 +32,21 @@ int MjpegDecoder::decode(uvc_frame_t *in, uvc_frame_t *out, bool gray) {
     }
     out->width = width; out->height = height;
     out->frame_format = gray ? UVC_FRAME_FORMAT_GRAY8 : UVC_FRAME_FORMAT_RGBX;
-    out->step = width * bytes;
+    out->step = pitch;
+    out->sequence = in->sequence; out->capture_time = in->capture_time;
+    out->capture_time_finished = in->capture_time_finished; out->source = in->source;
+    return UVC_SUCCESS;
+}
+
+int uvc_yuyv_to_nv(uvc_frame_t *in, uvc_frame_t *out, bool nv21) {
+    if (in->frame_format != UVC_FRAME_FORMAT_YUYV) return UVC_ERROR_INVALID_PARAM;
+    const size_t bytes = static_cast<size_t>(in->width) * in->height * 3 / 2;
+    if (uvc_ensure_frame_size(out, bytes) < 0) return UVC_ERROR_NO_MEM;
+    if (!yuyvToNv(static_cast<const uint8_t *>(in->data), in->data_bytes, in->step,
+                  static_cast<uint8_t *>(out->data), out->data_bytes, in->width, in->height, nv21))
+        return UVC_ERROR_INVALID_PARAM;
+    out->width = in->width; out->height = in->height; out->step = in->width;
+    out->frame_format = nv21 ? UVC_FRAME_FORMAT_NV21 : UVC_FRAME_FORMAT_NV12;
     out->sequence = in->sequence; out->capture_time = in->capture_time;
     out->capture_time_finished = in->capture_time_finished; out->source = in->source;
     return UVC_SUCCESS;

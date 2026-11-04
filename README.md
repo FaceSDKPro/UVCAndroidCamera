@@ -39,7 +39,8 @@ python3 tools/check_artifact.py camera/build/outputs/aar/camera-release.aar --ab
 The lightweight `system` C++ runtime is intentional: only basic new/delete are needed, with no STL objects or exceptions crossing libraries.
 See [native build notes](NATIVE_BUILD.md) for the measured static libc++ cost and migration constraints.
 The artifact audit enforces per-library size budgets, 16 KB ELF alignment for all ABIs, and uncompressed APK ZIP alignment/byte equality when an APK is supplied.
-Current native payload is **1,844,380 bytes for four ABIs**, or **840,244 bytes for the two ARM ABIs**; these are size results, not electrical-power gains.
+Current native payload is **1,869,372 bytes for four ABIs**, or **856,080 bytes for the two ARM ABIs**; these are size results, not electrical-power gains.
+The latest changes add direct YUYV conversion, direct MJPEG preview decoding and a headless queue path; see [performance notes](PERFORMANCE.md) for behavior and pixel-value differences.
 
 An explicit Google Maven mirror can be supplied when needed:
 

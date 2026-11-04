@@ -1,3 +1,4 @@
+// Modified by FaceSDKPro, 2026-11-04; see UPSTREAM.md.
 /*********************************************************************
 * Software License Agreement (BSD License)
 *
@@ -41,17 +42,18 @@
 /** @internal */
 uvc_error_t uvc_ensure_frame_size(uvc_frame_t *frame, size_t need_bytes) {
     if (frame->library_owns_data) {
-        frame->data_bytes = need_bytes;
         if (!frame->data || frame->capacity_bytes < need_bytes) {
+            void *data = realloc(frame->data, need_bytes);
+            if (!data) return UVC_ERROR_NO_MEM;
+            frame->data = data;
             frame->capacity_bytes = need_bytes;
-            frame->data = realloc(frame->data, frame->capacity_bytes);
         }
-        if (!frame->data)
-            return UVC_ERROR_NO_MEM;
+        frame->data_bytes = need_bytes;
         return UVC_SUCCESS;
     } else {
         if (!frame->data || frame->capacity_bytes < need_bytes)
             return UVC_ERROR_NO_MEM;
+        frame->data_bytes = need_bytes;
         return UVC_SUCCESS;
     }
 }

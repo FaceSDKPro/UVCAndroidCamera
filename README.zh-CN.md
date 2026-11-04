@@ -35,7 +35,8 @@ python3 tools/check_artifact.py camera/build/outputs/aar/camera-release.aar --ab
 有意保留轻量 `system` C++ 运行时，只使用基础 new/delete，不传递 STL 对象或异常；
 完整静态 libc++ 的实测体积代价及未来迁移约束见 [原生构建说明](NATIVE_BUILD.md)。
 制品检查覆盖逐库体积上限、四 ABI 的 16 KB ELF 对齐，以及指定 APK 的未压缩 so ZIP 对齐和字节一致性。
-当前四 ABI so 合计 **1,844,380 字节**，ARM 双 ABI **840,244 字节**；这不代表电功耗收益。
+当前四 ABI so 合计 **1,869,372 字节**，ARM 双 ABI **856,080 字节**；这不代表电功耗收益。
+本轮增加 YUYV 直转、纯 MJPEG 预览直接解码及无预览队列优化；行为与颜色数值差异见 [性能说明](PERFORMANCE.zh-CN.md)。
 
 必要时可显式指定 Google Maven 镜像：
 

@@ -1,4 +1,4 @@
-// Modified by FaceSDKPro, 2026-11-03; see UPSTREAM.md for changes.
+// Modified by FaceSDKPro, 2026-11-04; see UPSTREAM.md for changes.
 #ifndef UVC_CAMERA_CONVERTHELPER_H
 #define UVC_CAMERA_CONVERTHELPER_H
 
@@ -25,6 +25,7 @@ public:
     int decode(uvc_frame_t *in, uvc_frame_t *out, bool gray = false);
 };
 int uvc_rgbx_to_gray8(uvc_frame_t *in, uvc_frame_t *out);
+int uvc_yuyv_to_nv(uvc_frame_t *in, uvc_frame_t *out, bool nv21);
 
 
 

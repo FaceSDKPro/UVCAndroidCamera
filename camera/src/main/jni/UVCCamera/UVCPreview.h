@@ -1,4 +1,4 @@
-// Modified by FaceSDKPro, 2026-11-03; see UPSTREAM.md for changes.
+// Modified by FaceSDKPro, 2026-11-04; see UPSTREAM.md for changes.
 /*
  * UVCCamera
  * library and sample to access to UVC web camera on non-rooted Android device
@@ -64,6 +64,7 @@ private:
     uvc_device_handle_t *mDeviceHandle;
     ANativeWindow *mPreviewWindow;
     std::atomic<bool> mIsRunning;
+    std::atomic<bool> mHasPreview{false}, mCaptureThreadReady{false};
     std::atomic<uint64_t> mPreviewFrameCount{0};
 
     // request format
@@ -123,6 +124,8 @@ private:
     int prepare_preview(uvc_stream_ctrl_t *ctrl);
 
     void do_preview(uvc_stream_ctrl_t *ctrl);
+    int ensureCaptureThread();
+    void drawPreviewMjpeg(uvc_frame_t *input);
 
     void draw_preview_one(uvc_frame_t *frame, ANativeWindow **window);
 

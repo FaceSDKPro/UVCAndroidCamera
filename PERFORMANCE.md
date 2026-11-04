@@ -10,9 +10,9 @@ they do not guarantee a particular device power budget.
 - Each decoding thread owns and reuses its TurboJPEG decompressor. Bad JPEGs reset the instance; header dimensions are still checked. Decoder quality flags are unchanged.
 - The input queue holds one latest frame instead of four queued frames. Callback delivery also retains only the latest frame.
 - Headless capture queues compressed input and decodes only when the consumer is ready. This avoids decoding discarded frames when an SDK callback is busy. Decoding and a blocking callback then run sequentially, which can reduce callback throughput. For throughput-oriented processing, use short callbacks and a bounded asynchronous worker with explicitly owned pixel copies.
-- `PIXEL_FORMAT_GRAY8` requests packed grayscale. Headless MJPEG uses TurboJPEG grayscale output directly, avoiding RGBX and chroma output. With a preview, the required RGBX display frame is reused. JPEG grayscale uses full-range values; YUYV grayscale retains source luma. Existing NV12/NV21 conversion stays unchanged. JPEG GRAY8 is therefore not promised to match the previous RGB-to-NV21 Y values byte for byte.
-- Compact YUYV input can be delivered directly for a headless YUYV callback. Buffer reuse prefers the smallest fitting allocation.
-- Preview-only sessions skip the pixel callback thread and use an atomic native preview-post counter. Startup checks still detect a camera that produces no preview.
+- `PIXEL_FORMAT_GRAY8` requests packed grayscale. Headless MJPEG uses TurboJPEG grayscale output directly, avoiding RGBX and chroma output. For MJPEG with a preview, the required RGBX display frame is reused. JPEG grayscale uses full-range values; YUYV grayscale retains source luma with or without a preview. MJPEG NV12/NV21 retains its RGBX matrix conversion; the direct YUYV path is described below. JPEG GRAY8 is therefore not promised to match the previous RGB-to-NV21 Y values byte for byte.
+- Compact YUYV input can be delivered directly for a YUYV callback, including with a preview. Buffer reuse prefers the smallest fitting allocation.
+- MJPEG preview-only sessions decode into the actual Surface stride, avoiding an intermediate RGBX copy. Preview-only sessions skip the pixel callback thread and use an atomic native preview-post counter. Startup checks still detect a camera that produces no preview.
 - Stop signals are sent under their queue mutexes, waits check predicates, and the preview thread owns capture-thread creation and joining. Running/capture flags are atomic.
 - Close releases JNI frame/status/button callback references. USB status callback targets outlive the USB event thread. Repeated frame-callback/Surface assignments release redundant references. Session timeouts and startup checks are cancelled when no longer needed.
 - `CameraFrame.luma()` borrows a read-only direct view. `copyLumaTo()` and `copyPixelsTo()` copy into caller-owned reusable arrays, avoiding a new image array on every callback. Borrowed views still expire on callback return.
@@ -99,3 +99,43 @@ Four-ABI native bytes changed from 1,869,156 to **1,844,380** (1.33% smaller); t
 AAR ZIP bytes increased slightly from 867,986 to 879,206. The minimal C++ runtime is retained after a static libc++ experiment grew native bytes to 2,583,240.
 Per-library budgets and both ELF/APK 16 KB alignment checks now guard the build. Configuration, ABI totals and tradeoffs are in [NATIVE_BUILD.md](NATIVE_BUILD.md).
 The fixed-exposure CPU table above belongs to the earlier NDK 27 candidates; this toolchain change has not repeated that CPU comparison or measured electrical consumption.
+
+## Capture path changes on 2026-11-04
+
+- Headless USB frames go directly to the latest capture queue. The preview worker owns stream lifetime and sleeps instead of forwarding every frame. Atomic readiness/Surface state supports path transitions; modulo-32-bit sequence comparison prevents an old preview-queue frame from replacing newer headless input. Replacing pending data does not notify the consumer again.
+- MJPEG preview-only decoding writes directly into ANativeWindow's actual stride, avoiding an intermediate RGBX frame and full-frame copy. An independent Surface reference covers decoding without holding the preview-queue lock. A bad JPEG clears the target buffer and resets the decoder. Pixel callbacks retain independent frame storage and their existing borrowed lifetime.
+- YUYV→NV12/NV21 directly preserves source Y and averages vertically adjacent chroma samples with upward rounding. ARM uses NEON; other targets use the scalar path. No RGB conversion, scratch buffer, heap allocation or range rescaling is required. With a preview, original YUYV also feeds RAW/YUV/NV12/NV21/GRAY8 callbacks while RGBX is used for display.
+- Frame growth now preserves the original pointer/capacity when realloc fails, and records data length for borrowed buffers.
+
+YUYV NV12/NV21 intentionally differs from the old YUYV→RGBX→NV output: RGB clipping, matrix conversion and a second quantization are removed. YUYV GRAY8 consistently preserves source Y even with a preview. MJPEG NV12/NV21 retains the prior matrix path and JPEG quality flags. Consumers must use the camera's actual range rather than assume byte equality with the old round trip. This does not provide hardware synchronization or reduce camera USB/sensor/illumination consumption.
+
+The four-ABI native payload is **1,869,372 bytes**, up 24,992 (1.36%) from 1,844,380, within the unchanged 1,900,000-byte ceiling. The two ARM ABIs total **856,080 bytes**. Export and 16 KB ELF/APK alignment checks remain enforced.
+
+Native numerical tests cover 120 dimension/stride/NV12/NV21 combinations, SIMD blocks/tails and buffer bounds. Synthetic JPEG checks compare packed/strided active pixels and cover short buffers, bad stride/dimensions and recovery after truncated input. Run with host cjpeg installed:
+
+```sh
+python3 tools/run_native_checks.py --serial YOUR_ADB_SERIAL --output /path/outside/repository
+```
+
+### Fixed-exposure A/B results for this change
+
+The baseline is the NDK 29 AAR from `2159e68`. Both Release/R8 benchmark APKs have byte-identical driver DEX; only the capture AAR changes.
+The same tablet and RGB/IR cameras use 640×480, MJPEG requested at 30 FPS or YUYV at 15 FPS, with manual 10 ms exposure read back.
+Candidate/baseline/baseline/candidate rounds each warm up for five seconds and take three five-second samples per scenario: six samples per variant/scenario, 60 total.
+All 40 exposure restorations were read back successfully. CPU is process mean (sample range), with one core as 100%; FPS lists both cameras.
+
+| Scenario | Baseline CPU % | Optimized CPU % | Baseline FPS | Optimized FPS |
+|---|---:|---:|---|---|
+| MJPEG / headless NV21 | 93.39 (86.72–99.44) | 90.85 (81.88–96.70) | 29.28 / 30.04 | 29.34 / 30.01 |
+| MJPEG / 80 ms callback delay | 83.44 (80.36–85.86) | 78.87 (74.59–82.93) | 11.29 / 11.19 | 11.19 / 11.12 |
+| MJPEG / headless GRAY8 | 87.61 (86.29–89.51) | 83.26 (79.86–87.19) | 29.37 / 30.01 | 29.30 / 30.07 |
+| MJPEG / preview only | 91.33 (89.80–93.06) | 90.19 (87.37–93.21) | 29.26 / 30.06 | 29.22 / 30.02 |
+| YUYV / headless NV21 | 83.10 (79.48–86.12) | 75.61 (70.75–81.54) | 14.52 / 14.85 | 14.68 / 15.02 |
+
+YUYV process CPU per delivered frame changed from **28.30 ms to 25.46 ms (about 10.0% less)**, with slightly higher achieved throughput; mean process CPU changed from 83.10% to 75.61%.
+MJPEG mean differences are smaller and sample ranges overlap. Slow-callback throughput also varies slightly; CPU percentage alone does not establish equal-cost throughput or stable power savings.
+Direct preview removes an intermediate frame/copy, but this run does not establish a stable CPU gain for that scenario. Electrical current/watts were not measured.
+
+The initial attempt with extra thread statistics exceeded Android's single-log limit and is excluded; measurements were repeated using complete chunked reports.
+Thread names can be inherited, so name-aggregated context-switch records are diagnostic only and are not used to quantify an individual preview worker's wake reduction.
+Raw inputs, driver, reports and failed attempts remain outside the repository. The accepted sample is restored and capture stopped; post-performance resource regression is recorded separately in VALIDATION.md.
