@@ -1,0 +1,37 @@
+package com.facesdkpro.uvccamera;
+
+import com.serenegiant.usb.UVCCamera;
+
+/** Exact RGB NV21 / IR GRAY8 modes and bounded software pairing limits. No liveness policy. */
+public final class DualCameraConfig {
+    public final StreamConfig rgb, ir;
+    public final int maxPairSkewMillis, maxFrameAgeMillis, maxPairsPerSecond;
+
+    public DualCameraConfig(StreamConfig rgb, StreamConfig ir, int maxPairSkewMillis,
+            int maxFrameAgeMillis, int maxPairsPerSecond) {
+        if (rgb == null || ir == null) throw new NullPointerException("stream config");
+        if (rgb.pixelFormat != UVCCamera.PIXEL_FORMAT_NV21
+                || ir.pixelFormat != UVCCamera.PIXEL_FORMAT_GRAY8) {
+            throw new IllegalArgumentException("Dual capture requires RGB NV21 and IR GRAY8");
+        }
+        // One in-flight and one latest buffer per role: at most approximately 10 MiB.
+        if (Math.max(rgb.width, rgb.height) > 1920 || Math.min(rgb.width, rgb.height) > 1080
+                || Math.max(ir.width, ir.height) > 1920 || Math.min(ir.width, ir.height) > 1080) {
+            throw new IllegalArgumentException("Paired capture supports at most portrait/landscape 1080p");
+        }
+        if (maxPairSkewMillis < 1 || maxPairSkewMillis > 200 || maxFrameAgeMillis < maxPairSkewMillis
+                || maxFrameAgeMillis > 1000 || maxPairsPerSecond < 1 || maxPairsPerSecond > 120) {
+            throw new IllegalArgumentException("Invalid pairing skew, age or delivery rate");
+        }
+        this.rgb = rgb; this.ir = ir; this.maxPairSkewMillis = maxPairSkewMillis;
+        this.maxFrameAgeMillis = maxFrameAgeMillis; this.maxPairsPerSecond = maxPairsPerSecond;
+    }
+
+    /** 640x480 MJPEG, capture 30 FPS, deliver at most 15 pairs/s, 50 ms arrival skew, 150 ms age.
+     * These software limits are starting points, not calibrated sensor synchronization limits. */
+    public static DualCameraConfig defaults() {
+        return new DualCameraConfig(StreamConfig.defaults(),
+                new StreamConfig(640, 480, 30, UVCCamera.UVC_VS_FRAME_MJPEG,
+                        UVCCamera.PIXEL_FORMAT_GRAY8, 0), 50, 150, 15);
+    }
+}

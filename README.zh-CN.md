@@ -5,8 +5,41 @@
 由 FaceSDKPro 基于 [UVCAndroid](https://github.com/shiyinghan/UVCAndroid) 裁剪维护的 Android USB 摄像头采集库。
 
 **我们将上游仓库裁剪后，用于 [HelloFace](https://github.com/FaceSDKPro/HelloFace) 的 RGB + 近红外（IR）双目人脸识别功能开发。**
-本仓库提供双路摄像头采集、预览、像素送帧和设备生命周期管理，作为 HelloFace 双目功能开发的采集基础。
+本仓库提供可独立引入的 Android 摄像头 SDK 与配套 Demo：双路采集、预览、像素送帧和设备生命周期管理。
 识别算法、活体策略和双路人脸关联在 HelloFace / SDK 接入层开发。
+
+## 支持的摄像头类型
+
+本项目的双目采集接口面向 **RGB + 近红外（NIR/IR）双光谱双摄方案：两个独立 UVC 设备、两路独立视频流**。
+主机分别枚举可见光 RGB 摄像头与近红外摄像头，每路具有独立的设备标识，分别打开、配置和采集：
+
+- **RGB 路**：一个 UVC 设备，输出一路可见光画面，用于预览及上层人脸检测、识别。
+- **IR 路**：另一个 UVC 设备，输出一路真实近红外画面，用于上层红外活体评估。
+
+这里通常所说的“两个 Camera ID”，准确地说是 **Android USB Host 枚举出的两个 `UsbDevice` 标识**。
+本库直接通过 USB Host / libusb 访问 UVC 设备，不依赖 Camera2 的 `cameraId`，也不要求设备被系统 Camera2 枚举。
+RGB/IR 角色按 VID/PID 或用户配置绑定；插拔后重新枚举，不能依赖设备列表顺序或假定设备标识永久不变。
+
+**当前双目接口不支持单视频流输出的 RGB/IR 模组**，包括将两幅画面左右/上下拼接到同一帧、
+或在同一路流中交替输出 RGB/IR 的设备；同一 USB 设备内的多个 VideoStreaming 接口也尚未适配。
+两路独立视频流的帧配对属于软件时间关联，不代表硬件同步曝光。
+
+## SDK 与 Demo 交付
+
+当前本地 SDK 版本 **0.2.0**，供 HelloFace SDK 集成开发人员引入；当前没有接入或修改 HelloFace。
+
+```sh
+./gradlew prepareSdk
+```
+
+本地构建、单元测试、Lint 和制品审计后，生成 `build/sdk/uvc-android-camera-0.2.0.zip`：
+包含 AAR、源码 JAR、本地 Maven 仓库、可安装 Demo、只依赖二进制 SDK 的独立 Demo 源码及校验清单。
+不执行远端发布或 CI/CD。详细引入方式及完整示例见 [SDK 接入说明](docs/SDK_INTEGRATION.zh-CN.md)。
+
+- `DualCameraSession`：RGB NV21 + IR GRAY8、RGB 单路预览、有界缓冲和串行帧对回调。
+- `Nv21Planes`：直接切出 Y/U/V Buffer，便于构造算法 SDK 的 YUV 帧，无 Bitmap/I420 绕行。
+- 一路失败或断开即结束双路，等待清理完成后显式重试；不会自动降级单目。
+- 配对使用回调到达时间，仅为软件关联，不代表同步曝光、同一张脸或活体通过。
 
 上游源码基线：`fcdae5f9a194e2111d57019176b53470a120415b`。
 
@@ -33,7 +66,7 @@
 |---|---:|
 | 四 ABI 的 20 个 `.so`，未压缩合计 | 1,888,028 |
 | ARM 双 ABI 的 10 个 `.so`，未压缩合计 | 866,444 |
-| 默认四 ABI Release AAR，ZIP 包 | 902,427 |
+| SDK 0.2.0 四 ABI Release AAR，ZIP 包 | 919,593 |
 
 逐库体积预算和 **1,900,000 字节**原生总量上限持续检查；全部 20 个 `.so` 的 **16 KB ELF 对齐**及示例 APK 的 **16 KB ZIP 对齐**已通过。
 16 KB 页真机运行仍待验证。工具链、C++ 运行时取舍及检查方法见 [NATIVE_BUILD.md](NATIVE_BUILD.md)。
@@ -71,7 +104,7 @@ python3 tools/check_artifact.py camera/build/outputs/aar/camera-release.aar --ab
 ## 接入
 
 将 `camera` 模块加入项目，或在本机构建并使用 AAR。
-`com.facesdkpro:uvc-android-camera:0.1.0` 是本工程的本地发布坐标，尚未发布到 Maven Central。
+`com.facesdkpro:uvc-android-camera:0.2.0` 是本工程的本地发布坐标，尚未发布到 Maven Central。
 需要本地 Maven 时运行 `./gradlew :camera:publishReleasePublicationToMavenLocal`。
 
 ```java
@@ -136,8 +169,10 @@ IR 人脸框、双路同人关联及活体算法由上层 SDK 管理。
 另有 120 组 YUYV 数值组合、6 组 JPEG 步幅/异常恢复检查通过。性能测量后，59 项资源回归再次通过。
 后续全局复核增加了 JNI 重入/引用、分配失败、USB 提交及 RGBX 步幅边界检查；完整证据范围见 [VALIDATION.md](VALIDATION.md)。
 
-`sample` 提供两个 TextureView、设备选择、三档分辨率、帧计数及亮度控制。
-示例默认仅预览，不创建空帧回调；需要像素消费时按前文接入示例添加 FrameListener。
+`sample` 默认进入 SDK Demo：明确选择 RGB/IR，显示 RGB 预览、NV21/GRAY8 帧计数及帧对统计，IR 无预览。
+`SdkDemoActivity.consumePair()` 是算法同步接入位置；当前只检查像素契约，不模拟识别或活体结果。
+“设备预览与控制演示”保留两个 TextureView、设备选择、三档分辨率和亮度控制；该页面只预览。
+`demo` 为使用本机标准 Debug 签名、启用 R8 且不带诊断 Activity 的可安装演示构建。
 `deviceTest` 是使用 Release 优化和 JNI 保留规则、以本机 Debug 身份签名的独立验收构建；
 其中的诊断 Activity 不进入正式 `release`。
 

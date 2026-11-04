@@ -17,9 +17,21 @@ afterEvaluate { publishing { publications { release(MavenPublication) {
     from components.release
     groupId = 'com.facesdkpro'
     artifactId = 'uvc-android-camera'
-    version = '0.1.0'
-    pom { name = 'UVCAndroidCamera'; description = 'UVC preview, frame acquisition and device control'; url = 'https://github.com/FaceSDKPro/UVCAndroidCamera' }
-} } } }
+    version = rootProject.ext.uvcSdkVersion
+    pom {
+        name = 'UVCAndroidCamera'
+        description = 'Independent RGB/IR UVC camera SDK: preview, bounded NV21/GRAY8 pairs, controls and lifecycle'
+        url = 'https://github.com/FaceSDKPro/UVCAndroidCamera'
+        licenses { license {
+            name = 'Apache License, Version 2.0; bundled native components retain their own licenses (see NOTICE)'
+            url = 'https://github.com/FaceSDKPro/UVCAndroidCamera/blob/main/NOTICE'
+            distribution = 'repo'
+        } }
+        scm { url = 'https://github.com/FaceSDKPro/UVCAndroidCamera'; connection = 'scm:git:https://github.com/FaceSDKPro/UVCAndroidCamera.git' }
+    }
+} }
+repositories { maven { name = 'Sdk'; url = rootProject.layout.buildDirectory.dir('sdk-maven') } }
+} }
 
 dependencies { testImplementation 'junit:junit:4.13.2' }
 

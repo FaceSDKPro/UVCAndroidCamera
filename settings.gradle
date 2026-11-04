@@ -7,6 +7,15 @@ pluginManagement {
         google(); mavenCentral(); gradlePluginPortal()
     }
 }
-dependencyResolutionManagement { repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories { google(); mavenCentral() } }
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        if (providers.gradleProperty('uvcSdkRepository').isPresent()) {
+            maven { url = uri(file(providers.gradleProperty('uvcSdkRepository').get())) }
+        }
+        google(); mavenCentral()
+    }
+}
 rootProject.name = 'UVCAndroidCamera'
-include ':camera', ':sample'
+include ':sample'
+if (!providers.gradleProperty('uvcSdkRepository').isPresent()) include ':camera'

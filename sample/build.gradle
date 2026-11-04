@@ -3,10 +3,17 @@ android {
     namespace 'com.facesdkpro.uvccamera.sample'
     compileSdk 36
     ndkVersion rootProject.ext.uvcNative.ndkVersion
-    defaultConfig { applicationId 'com.facesdkpro.uvccamera.sample'; minSdk 23; targetSdk 36; versionCode 1; versionName '0.1.0' }
+    defaultConfig { applicationId 'com.facesdkpro.uvccamera.sample'; minSdk 23; targetSdk 36; versionCode 2; versionName rootProject.ext.uvcSdkVersion }
     compileOptions { sourceCompatibility JavaVersion.VERSION_1_8; targetCompatibility JavaVersion.VERSION_1_8 }
     buildTypes {
         release { minifyEnabled true; shrinkResources true; proguardFiles getDefaultProguardFile('proguard-android-optimize.txt') }
+        demo {
+            initWith release
+            // Installable developer demonstration, using only this machine's standard debug identity.
+            // No diagnostic Activities or private signing material are part of this variant.
+            signingConfig signingConfigs.debug
+            matchingFallbacks = ['release']
+        }
         deviceTest {
             initWith release
             // Exercise the real release optimizer/JNI keep rules on a device.
@@ -17,4 +24,8 @@ android {
     }
     sourceSets { deviceTest { java.srcDir 'src/debug/java'; manifest.srcFile 'src/debug/AndroidManifest.xml' } }
 }
-dependencies { implementation project(':camera') }
+dependencies {
+    if (providers.gradleProperty('uvcSdkRepository').isPresent()) {
+        implementation "com.facesdkpro:uvc-android-camera:${rootProject.ext.uvcSdkVersion}"
+    } else implementation project(':camera')
+}

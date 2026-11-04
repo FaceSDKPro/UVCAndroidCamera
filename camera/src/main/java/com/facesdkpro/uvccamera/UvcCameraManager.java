@@ -191,6 +191,9 @@ public final class UvcCameraManager implements AutoCloseable {
     }
 
     private void fail(Camera camera, String message, Throwable cause) {
+        // Publish the reason before onClosed: a pair owner must stop its peer immediately,
+        // without losing the detailed error while that cleanup suppresses ordinary callbacks.
+        camera.failureCause = cause; camera.failureMessage = message;
         stop(camera); emit(() -> listener.onError(camera.device, message, cause));
     }
 
@@ -238,6 +241,8 @@ public final class UvcCameraManager implements AutoCloseable {
         private final AtomicBoolean closed = new AtomicBoolean();
         private final AtomicLong frameCount = new AtomicLong();
         private volatile UVCCamera nativeCamera;
+        volatile String failureMessage;
+        Throwable failureCause;
         private Camera(UsbDevice device, StreamConfig config, Surface preview, FrameListener frames) {
             this.device = device; this.config = config; this.preview = preview; this.frames = frames;
         }

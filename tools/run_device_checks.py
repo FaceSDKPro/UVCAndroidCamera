@@ -30,6 +30,7 @@ def main():
     parser.add_argument("--serial", required=True)
     parser.add_argument("--output", type=Path, required=True, help="Directory outside source control for raw evidence")
     parser.add_argument("--keep-app", action="store_true")
+    parser.add_argument("--suite", choices=["capture", "dual-sdk"], default="capture")
     args = parser.parse_args()
     try:
         args.output = output_directory(args.output)
@@ -40,6 +41,7 @@ def main():
     apk_sha = file_sha256(apk)
     run_id = str(uuid.uuid4())
     adb = ["adb", "-s", args.serial]
+    activity, log_tag = ("DeviceProbeActivity", "UvcCameraAcceptance") if args.suite == "capture" else ("DualSessionProbeActivity", "UvcDualSdkAcceptance")
 
     def call(*command, check=True):
         result = subprocess.run(adb + list(command), text=True, capture_output=True, timeout=45)
@@ -52,15 +54,16 @@ def main():
     try:
         call("shell", "am", "force-stop", PACKAGE)
         call("shell", "pm", "grant", PACKAGE, "android.permission.CAMERA")
-        print(call("shell", "am", "start", "-W", "-n", PACKAGE + "/.DeviceProbeActivity", "--es", "runId", run_id).stdout, flush=True)
+        print(call("shell", "am", "start", "-W", "-n", PACKAGE + "/." + activity, "--es", "runId", run_id).stdout, flush=True)
         pid = call("shell", "pidof", PACKAGE).stdout.strip().split()[0]
         deadline = time.monotonic() + 140
         while time.monotonic() < deadline:
-            logs = call("logcat", "-d", "--pid=" + pid, "-v", "brief", "-s", "UvcCameraAcceptance:I", "*:S").stdout
+            logs = call("logcat", "-d", "--pid=" + pid, "-v", "brief", "-s", log_tag + ":I", "*:S").stdout
             report = matching_report(logs, run_id)
             if report is not None:
                 report["core_source_sha256"] = before
                 report["diagnostic_apk_sha256"] = apk_sha
+                report["suite"] = args.suite
                 report["apk_unchanged_after_test"] = apk_sha == file_sha256(apk)
                 report["source_unchanged_after_test"] = before == source_fingerprint()
                 for key in ["ro.product.manufacturer", "ro.product.model", "ro.build.version.release", "ro.build.version.sdk"]:

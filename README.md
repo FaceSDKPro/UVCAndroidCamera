@@ -6,8 +6,41 @@ A trimmed Android USB camera acquisition library maintained by FaceSDKPro, based
 [UVCAndroid](https://github.com/shiyinghan/UVCAndroid).
 
 **We trimmed the upstream repository to support development of [HelloFace](https://github.com/FaceSDKPro/HelloFace)'s RGB + near-infrared (IR) dual-camera face recognition feature.**
-This repository provides the acquisition foundation: concurrent camera capture, preview, pixel delivery and device lifecycle management.
+This repository provides a standalone Android camera SDK and Demo: concurrent capture, preview, pixel delivery and device lifecycle management.
 Face recognition algorithms, liveness policies and cross-camera face association are developed in the HelloFace / SDK integration layer.
+
+## Supported camera topology
+
+The paired capture API targets an **RGB + near-infrared (NIR/IR) camera configuration with two independent UVC devices and two independent video streams**.
+The host enumerates the visible-light RGB camera and the near-infrared camera separately. Each has its own device identifier and is opened, configured and captured independently:
+
+- **RGB stream**: one UVC device supplies visible-light images for preview and face detection/recognition in the integration layer.
+- **IR stream**: another UVC device supplies genuine near-infrared images for infrared liveness evaluation in the integration layer.
+
+What is commonly described here as “two Camera IDs” means **two separately enumerated Android USB Host `UsbDevice` identities**.
+This library accesses UVC devices through USB Host / libusb; it does not use Camera2 `cameraId` values or require Camera2 enumeration.
+Bind RGB/IR roles by VID/PID or explicit user configuration, enumerate again after reconnecting, and do not assume enumeration order or persistent device identifiers.
+
+**The paired API does not currently support RGB/IR modules that deliver a single video stream**, including side-by-side/top-bottom composite frames
+or alternating RGB/IR frames within one stream. Multiple VideoStreaming interfaces within a single USB device are also not yet supported.
+Pairing two independent streams is software time association, not proof of hardware-synchronized exposure.
+
+## SDK and Demo delivery
+
+The local SDK version is **0.2.0**, prepared for HelloFace SDK integrators. HelloFace has not been modified or linked.
+
+```sh
+./gradlew prepareSdk
+```
+
+Local builds, unit tests, Lint and artifact audits produce `build/sdk/uvc-android-camera-0.2.0.zip`:
+an AAR, sources JAR, local Maven repository, installable Demo, standalone binary-consuming Demo source and checksums.
+No remote publication or CI/CD is executed. See [SDK integration](docs/SDK_INTEGRATION.md) for dependencies and full examples.
+
+- `DualCameraSession`: RGB NV21 + IR GRAY8, RGB preview, bounded buffers and serial frame-pair delivery.
+- `Nv21Planes`: direct Y/U/V buffer views for an algorithm SDK, without a Bitmap/I420 round trip.
+- Failure or detach on either camera ends both streams. Retry explicitly after cleanup; there is no single-camera fallback.
+- Pairing uses callback arrival times: software association proves neither simultaneous exposure, face correspondence nor liveness.
 
 Upstream source baseline: `fcdae5f9a194e2111d57019176b53470a120415b`.
 
@@ -37,7 +70,7 @@ Current NDK 29 build sizes:
 |---|---:|
 | 20 `.so` libraries across four ABIs, uncompressed total | 1,888,028 |
 | 10 `.so` libraries across the two ARM ABIs, uncompressed total | 866,444 |
-| Default four-ABI Release AAR, ZIP archive | 902,427 |
+| SDK 0.2.0 four-ABI Release AAR, ZIP archive | 919,593 |
 
 Per-library budgets and the **1,900,000-byte** native payload ceiling remain enforced.
 All 20 libraries pass **16 KB ELF alignment**, and the sample APKs pass **16 KB ZIP alignment**.
@@ -77,7 +110,7 @@ Build outputs stay in each module's `build/` directory. AARs, APKs, native binar
 ## Integration
 
 Add the `camera` module to your project, or build and consume the AAR locally.
-`com.facesdkpro:uvc-android-camera:0.1.0` is this project's local publication coordinate; it has not been published to Maven Central.
+`com.facesdkpro:uvc-android-camera:0.2.0` is this project's local publication coordinate; it has not been published to Maven Central.
 To publish to your local Maven repository, run `./gradlew :camera:publishReleasePublicationToMavenLocal`.
 
 ```java
@@ -147,8 +180,11 @@ On 2026-11-04, the tablet and RGB/IR cameras above passed 59 device checks, 24 d
 Another 120 YUYV numerical combinations and six JPEG stride/error-recovery groups passed. All 59 resource checks passed again after performance measurements.
 Subsequent global review adds JNI reentrancy/reference, allocation-failure, USB-submission and RGBX stride-boundary checks. See [VALIDATION.md](VALIDATION.md) for the complete evidence scope (Chinese).
 
-`sample` provides two TextureViews, device selection, three resolution presets, frame counters and brightness controls.
-The sample uses preview-only sessions by default; add a FrameListener as shown above when consuming pixels.
+`sample` opens the SDK Demo by default: explicit RGB/IR selection, RGB preview, NV21/GRAY8 counters and pairing statistics, with headless IR.
+`SdkDemoActivity.consumePair()` is the synchronous algorithm integration point; it validates pixels without simulating recognition or liveness.
+The device preview/control screen retains two TextureViews, device selection, three resolution presets and brightness controls; that screen is preview-only.
+The installable `demo` build uses the local standard debug identity and R8, without diagnostic Activities.
+The device preview/control screen uses preview-only sessions; the SDK Demo consumes actual frame pairs.
 `deviceTest` is a separate acceptance build using Release optimization and JNI keep rules, signed with the local Debug identity.
 Its diagnostic Activity is excluded from the production `release` build.
 

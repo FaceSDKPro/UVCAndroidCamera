@@ -52,6 +52,8 @@ def main():
         with zipfile.ZipFile(io.BytesIO(archive.read('classes.jar'))) as classes:
             assert not any(name.startswith(('com/herohan/', 'com/serenegiant/encoder/', 'com/serenegiant/opengl/')) for name in classes.namelist())
             assert 'com/facesdkpro/uvccamera/UvcCameraManager.class' in classes.namelist()
+            for name in ['DualCameraSession', 'DualCameraConfig', 'FramePair', 'Nv21Planes']:
+                assert 'com/facesdkpro/uvccamera/' + name + '.class' in classes.namelist(), ('Missing SDK API', name)
             assert any(name.endswith('LICENSES/libusb-COPYING') for name in classes.namelist()), 'Bundled license texts missing'
         rows, native_rows, metadata, digests, abis = [], [], {}, {}, set()
         for name in sorted(archive.namelist()):

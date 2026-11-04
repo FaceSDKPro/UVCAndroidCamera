@@ -10,3 +10,16 @@ if (requestedUvcAbis.any { !supportedUvcAbis.contains(it) } || requestedUvcAbis.
     throw new GradleException('uvcAbis must be a comma-separated subset of ' + supportedUvcAbis.join(','))
 }
 ext.uvcNative = [ndkVersion: '29.0.14206865', abis: requestedUvcAbis]
+ext.uvcSdkVersion = '0.2.0'
+
+// Local developer delivery only. No upload, remote repository or CI/CD task.
+if (findProject(':camera') != null) {
+    tasks.register('prepareSdk', Exec) {
+        group = 'distribution'
+        description = 'Build and audit a local SDK, Maven repository and standalone demo bundle'
+        dependsOn ':camera:publishReleasePublicationToSdkRepository', ':sample:assembleDemo',
+                ':camera:testReleaseUnitTest', ':camera:lintRelease', ':sample:lintDemo'
+        commandLine 'python3', 'tools/prepare_sdk.py', '--version', uvcSdkVersion,
+                '--abis', requestedUvcAbis.join(',')
+    }
+}
