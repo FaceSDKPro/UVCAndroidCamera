@@ -17,6 +17,32 @@ Photo storage, video/audio recording, encoders, Java OpenGL multi-output renderi
 There are no third-party Java runtime dependencies. The manifest declares only CAMERA permission and USB Host capability.
 See [UPSTREAM.md](UPSTREAM.md) for the trimming analysis (Chinese).
 
+## Optimizations and measurements
+
+The capture pipeline reduces decoding, memory copies and thread handoffs for continuous HelloFace RGB + IR acquisition:
+
+- **Direct YUYV to NV12/NV21**: ARM NEON preserves source luma without an RGBX round trip; the conversion kernel needs no scratch buffer.
+- **Direct MJPEG preview decoding into the Surface**: uses its actual stride, removing the intermediate RGBX frame and full-frame copy in preview-only mode.
+- **One fewer headless thread handoff**: decode when the consumer is ready and retain only the latest input instead of processing stale JPEGs.
+- **Lower ongoing overhead**: reuse decoders and frame buffers, share the USB/command worker, retain native SIMD and exclude unused encoding, scaling and rotation modules.
+
+On a Xiaomi 24091RPADC (Android 16) with RGB/IR cameras, dual 640×480 YUYV capture requested at 15 FPS per camera and fixed 10 ms exposure reduced
+**mean process CPU time per delivered frame from 28.30 ms to 25.46 ms, about 10%**, with slightly higher achieved throughput.
+The full comparison contains 60 samples. MJPEG scenario ranges overlap; electrical power has not been measured.
+See [performance records](PERFORMANCE.md) for conditions, achieved FPS and results.
+
+Current NDK 29 build sizes:
+
+| Item | Bytes |
+|---|---:|
+| 20 `.so` libraries across four ABIs, uncompressed total | 1,869,372 |
+| 10 `.so` libraries across the two ARM ABIs, uncompressed total | 856,080 |
+| Default four-ABI Release AAR, ZIP archive | 892,396 |
+
+Per-library budgets and the **1,900,000-byte** native payload ceiling remain enforced.
+All 20 libraries pass **16 KB ELF alignment**, and the sample APKs pass **16 KB ZIP alignment**.
+Runtime validation on a 16 KB page-size device remains outstanding. See [NATIVE_BUILD.md](NATIVE_BUILD.md) for toolchain/runtime choices and checks.
+
 ## Build
 
 Use JDK 17, Android SDK 36 and NDK `29.0.14206865`. The Gradle Wrapper is pinned to `8.14.3`.
@@ -36,11 +62,8 @@ API 21 library compatibility and x86 emulator support remain available. For Hell
 python3 tools/check_artifact.py camera/build/outputs/aar/camera-release.aar --abis arm64-v8a armeabi-v7a
 ```
 
-The lightweight `system` C++ runtime is intentional: only basic new/delete are needed, with no STL objects or exceptions crossing libraries.
-See [native build notes](NATIVE_BUILD.md) for the measured static libc++ cost and migration constraints.
-The artifact audit enforces per-library size budgets, 16 KB ELF alignment for all ABIs, and uncompressed APK ZIP alignment/byte equality when an APK is supplied.
-Current native payload is **1,869,372 bytes for four ABIs**, or **856,080 bytes for the two ARM ABIs**; these are size results, not electrical-power gains.
-The latest changes add direct YUYV conversion, direct MJPEG preview decoding and a headless queue path; see [performance notes](PERFORMANCE.md) for behavior and pixel-value differences.
+The lightweight `system` C++ runtime provides basic new/delete; STL objects and exceptions do not cross libraries. See [native build notes](NATIVE_BUILD.md) for the rationale and future migration constraints.
+The artifact audit checks permissions, native exports, dependencies, size, ELF/APK alignment and matching native bytes between the APK and AAR.
 
 An explicit Google Maven mirror can be supplied when needed:
 
@@ -70,9 +93,11 @@ UvcCameraManager.Camera rgb = manager.open(rgbDevice, StreamConfig.defaults(), r
             ByteBuffer pixels = frame.pixels(); // Borrowed, read-only direct NV21 buffer.
             // Consume synchronously here; call frame.copyPixels() to retain an owned copy.
         });
-UvcCameraManager.Camera ir = manager.open(irDevice, StreamConfig.defaults(), null,
+StreamConfig irConfig = new StreamConfig(640, 480, 30,
+        UVCCamera.UVC_VS_FRAME_MJPEG, UVCCamera.PIXEL_FORMAT_GRAY8, 0);
+UvcCameraManager.Camera ir = manager.open(irDevice, irConfig, null,
         (camera, frame) -> {
-            ByteBuffer gray8 = frame.luma(); // Borrow Y synchronously; use a bounded copyLumaTo pool for async work.
+            ByteBuffer gray8 = frame.luma(); // Packed GRAY8; use a bounded copyLumaTo pool for async work.
         });
 
 rgb.withControls(control -> {
@@ -101,34 +126,26 @@ Multiple VideoStreaming interfaces within a single USB device require additional
 Attach/detach events notify the host. Detaching closes the corresponding session; after reattachment, the host selects and reopens the appropriate role.
 IR face boxes, cross-camera face association and liveness algorithms belong to the upper SDK layer.
 
-## Performance and lower-power integration
+## Lower-power integration and pixel semantics
 
-MJPEG decoders are reused per decoding thread. Both input and callback queues retain only the latest frame.
-Headless sessions decode when the consumer is ready, so a busy SDK does not force obsolete JPEGs through RGB conversion.
-Preview-only sessions omit the pixel callback thread and use a native preview counter for startup checks.
-Native callback references and per-session delayed tasks are released/cancelled at close.
-USB monitoring shares the manager's command looper, avoiding a second Java background thread.
-The native build excludes JPEG encoding/image-file helpers and unused YUV scaling, rotation and comparison modules.
-SIMD conversions remain enabled. The five native libraries expose a reviewed internal interface; Java is the supported integration API.
-Across the four ABIs, native library bytes decreased from 6,895,160 to 1,869,156 (72.9%) with the same toolchain.
-This is a binary size result; device power requires separate measurement.
+- Use preview-only sessions for display. Add a FrameListener for SDK pixel consumption, and attach a Surface only to cameras that need to be shown.
+- Select `PIXEL_FORMAT_GRAY8` for headless IR analysis when the SDK accepts its range. Headless MJPEG produces packed full-range grayscale (`width * height` bytes); with a preview, grayscale reuses the required RGBX display frame.
+- Borrow luma synchronously with `frame.luma()`, or copy into reusable arrays with `copyLumaTo(byte[], offset)` / `copyPixelsTo(byte[], offset)`. Keep asynchronous queues bounded; borrowed views expire on callback return.
+- Choose a supported resolution/FPS for the workload and close unused sessions. Host-side dropping does not reduce camera USB traffic, sensor consumption or IR illumination power.
 
-For IR analysis without a preview, explicitly select `UVCCamera.PIXEL_FORMAT_GRAY8` in `StreamConfig`.
-MJPEG is then decoded directly into packed, full-range grayscale (`width * height` bytes), without RGBX or chroma output.
-With a preview, grayscale is derived from the RGBX frame already needed for display.
-YUYV-to-GRAY8 preserves the camera's luma values. Existing NV12/NV21 color conversion remains unchanged;
-GRAY8 JPEG values can differ from the Y plane obtained through the previous RGB-to-NV21 conversion.
-Use `frame.luma()` for a borrowed read-only view, or `copyLumaTo(byte[], offset)` / `copyPixelsTo(byte[], offset)`
-with caller-owned reusable arrays. All borrowed views expire when the callback returns.
+**YUYV pixel semantics**: direct NV12/NV21 preserves source Y and vertically averages chroma; GRAY8 preserves source Y with or without a preview.
+Values can differ from the old YUYV→RGBX→NV round trip. MJPEG NV12/NV21 keeps its prior color conversion; directly decoded JPEG GRAY8 is not guaranteed to equal that NV21 Y plane either.
+Use the actual input range when integrating an SDK. See [PERFORMANCE.md](PERFORMANCE.md) for details.
 
-`UvcCameraManager` uses USB broadcasts plus a five-second fallback device scan.
-The overload `new UvcCameraManager(context, listener, devicePollMillis)` accepts `0` for broadcasts plus the initial scan,
-or an interval of at least 1000 ms. Disabling polling requires reliable attach broadcasts on the target device;
-when broadcasts are missing, discovery latency follows the configured interval.
-Choose a supported capture resolution/FPS for the application and close sessions when unused.
-See [PERFORMANCE.md](PERFORMANCE.md) for implementation details, the measurement procedure and current evidence limits.
+`UvcCameraManager` defaults to USB broadcasts plus a five-second fallback scan.
+`new UvcCameraManager(context, listener, devicePollMillis)` accepts `0` for broadcasts plus the initial scan, or an interval of at least 1000 ms.
+Verify attach broadcasts on the target system before disabling polling; when broadcasts are missing, discovery latency follows the configured interval.
 
 ## Sample and device validation
+
+On 2026-11-04, the tablet and RGB/IR cameras above passed 59 device checks, 24 dual-camera mode cases and 10 transition phases.
+Another 120 YUYV numerical combinations and six JPEG stride/error-recovery groups passed. All 59 resource checks passed again after performance measurements.
+See [VALIDATION.md](VALIDATION.md) for the complete evidence scope (Chinese).
 
 `sample` provides two TextureViews, device selection, three resolution presets, frame counters and brightness controls.
 The sample uses preview-only sessions by default; add a FrameListener as shown above when consuming pixels.

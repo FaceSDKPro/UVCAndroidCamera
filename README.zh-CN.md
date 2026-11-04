@@ -14,6 +14,30 @@
 删除拍照保存、录像、录音、编码器、Java OpenGL 多画面渲染和旧示例。库无第三方 Java 运行时依赖，
 仅声明 CAMERA 权限及 USB Host 能力。完整分析见 [UPSTREAM.md](UPSTREAM.md)。
 
+## 优化与实测
+
+围绕 HelloFace 的 RGB + IR 连续采集，主要减少解码、内存复制和线程转发：
+
+- **YUYV 直接转 NV12/NV21**：ARM 使用 NEON，保留源亮度，不再绕经 RGBX；转换内核无需临时缓冲。
+- **纯 MJPEG 预览直接解码到 Surface**：按实际步幅写入，省去 RGBX 中间帧及整帧复制。
+- **无预览采集减少一次线程转发**：消费者就绪后才解码，只保留最新帧，避免处理过时 JPEG。
+- **减少常驻开销**：复用解码器和帧缓冲，USB 监控共用命令线程；原生构建保留 SIMD，裁掉未使用的编码、缩放、旋转等模块。
+
+在 Xiaomi 24091RPADC（Android 16）和两台 RGB/IR 摄像头上，以 640×480、双路 YUYV 请求各 15 FPS、固定 10 ms 曝光进行对照，
+**平均每交付一帧的进程 CPU 时间由 28.30 ms 降至 25.46 ms，约减少 10%**，实际吞吐略高于基线。
+完整对照共 60 段样本；MJPEG 各场景的 CPU 区间有重叠，整机电功耗尚未测量。条件、帧率和数据见 [性能记录](PERFORMANCE.zh-CN.md)。
+
+当前 NDK 29 构建体积：
+
+| 项目 | 字节数 |
+|---|---:|
+| 四 ABI 的 20 个 `.so`，未压缩合计 | 1,869,372 |
+| ARM 双 ABI 的 10 个 `.so`，未压缩合计 | 856,080 |
+| 默认四 ABI Release AAR，ZIP 包 | 892,396 |
+
+逐库体积预算和 **1,900,000 字节**原生总量上限持续检查；全部 20 个 `.so` 的 **16 KB ELF 对齐**及示例 APK 的 **16 KB ZIP 对齐**已通过。
+16 KB 页真机运行仍待验证。工具链、C++ 运行时取舍及检查方法见 [NATIVE_BUILD.md](NATIVE_BUILD.md)。
+
 ## 构建
 
 JDK 17、Android SDK 36、NDK `29.0.14206865`；Gradle Wrapper 固定为 `8.14.3`。
@@ -32,11 +56,8 @@ python3 tools/check_artifact.py camera/build/outputs/aar/camera-release.aar --ap
 python3 tools/check_artifact.py camera/build/outputs/aar/camera-release.aar --abis arm64-v8a armeabi-v7a
 ```
 
-有意保留轻量 `system` C++ 运行时，只使用基础 new/delete，不传递 STL 对象或异常；
-完整静态 libc++ 的实测体积代价及未来迁移约束见 [原生构建说明](NATIVE_BUILD.md)。
-制品检查覆盖逐库体积上限、四 ABI 的 16 KB ELF 对齐，以及指定 APK 的未压缩 so ZIP 对齐和字节一致性。
-当前四 ABI so 合计 **1,869,372 字节**，ARM 双 ABI **856,080 字节**；这不代表电功耗收益。
-本轮增加 YUYV 直转、纯 MJPEG 预览直接解码及无预览队列优化；行为与颜色数值差异见 [性能说明](PERFORMANCE.zh-CN.md)。
+使用轻量 `system` C++ 运行时满足基础 new/delete，不传递 STL 对象或异常；原因和后续迁移约束见 [原生构建说明](NATIVE_BUILD.md)。
+制品检查同时核对权限、原生导出、依赖、体积、ELF/APK 对齐，以及 APK 与 AAR 中的原生库字节一致性。
 
 必要时可显式指定 Google Maven 镜像：
 
@@ -66,9 +87,11 @@ UvcCameraManager.Camera rgb = manager.open(rgbDevice, StreamConfig.defaults(), r
             ByteBuffer pixels = frame.pixels(); // 只在回调期间有效的 DirectByteBuffer，只读 NV21。
             // 在这里同步消费；若要异步保留，显式调用 frame.copyPixels()。
         });
-UvcCameraManager.Camera ir = manager.open(irDevice, StreamConfig.defaults(), null,
+StreamConfig irConfig = new StreamConfig(640, 480, 30,
+        UVCCamera.UVC_VS_FRAME_MJPEG, UVCCamera.PIXEL_FORMAT_GRAY8, 0);
+UvcCameraManager.Camera ir = manager.open(irDevice, irConfig, null,
         (camera, frame) -> {
-            ByteBuffer gray8 = frame.luma(); // 同步借用真实 IR 亮度；异步处理时用有界数组池配合 copyLumaTo。
+            ByteBuffer gray8 = frame.luma(); // 紧凑 GRAY8；异步处理时用有界数组池配合 copyLumaTo。
         });
 
 rgb.withControls(control -> {
@@ -92,32 +115,26 @@ manager.close();
 需要额外适配，不在当前多摄契约内。插拔会通知宿主；拔出关闭对应会话，重新插入后由宿主按角色重新选择。
 IR 人脸框、双路同人关联及活体算法由上层 SDK 管理。
 
-## 性能与低功耗接入
+## 低功耗接入与像素约定
 
-每个解码线程复用 MJPEG 解码器；输入队列和回调队列各只保留最新帧。
-无预览模式等消费者就绪后才解码，SDK 忙时不再将过时 JPEG 解码为 RGB。
-纯预览模式省去像素回调线程，用原生预览计数检查启动状态。
-关闭时释放原生回调引用，取消所属会话的延时任务。
-USB 监控复用管理器的命令 Looper，省去额外的 Java 后台线程。
-原生构建排除 JPEG 编码/图片文件辅助功能，以及未使用的 YUV 缩放、旋转和比较模块，保留 SIMD 转换。
-五个原生库仅暴露经审查的内部接口，对外通过 Java API 接入。
-相同工具链下，四种 ABI 的共享库总字节从 6,895,160 降至 1,869,156（减少 72.9%）；电功耗需另行测量。
+- 只需要显示时使用纯预览会话；需要 SDK 像素时再传入 FrameListener，只给需要显示的摄像头设置 Surface。
+- IR 不需要预览且 SDK 接受对应灰度范围时，选择 `PIXEL_FORMAT_GRAY8`。无预览 MJPEG 直接输出 `width * height` 字节的全范围灰度；有预览时复用显示所需的 RGBX 帧生成灰度。
+- 用 `frame.luma()` 同步借用亮度，或用 `copyLumaTo(byte[], offset)`、`copyPixelsTo(byte[], offset)` 复制到复用数组；异步队列保持有界，借用视图只在回调期间有效。
+- 按业务选择设备支持的分辨率/帧率，不使用时关闭会话。主机丢帧不会降低相机 USB 流量、传感器或红外补光功耗。
 
-IR 不需要预览时，可在 `StreamConfig` 中明确选择 `UVCCamera.PIXEL_FORMAT_GRAY8`。
-MJPEG 会直接解码为 `width * height` 字节的全范围灰度，不生成 RGBX 或色度数据；
-有预览时从显示所需的 RGBX 帧生成灰度。YUYV 转 GRAY8 保留摄像头原始亮度值。
-现有 NV12/NV21 颜色转换保持不变；JPEG 直接灰度与原来经 RGB 转 NV21 再取 Y 的数值可能不同。
-使用 `frame.luma()` 借用只读亮度视图，或用 `copyLumaTo(byte[], offset)`、`copyPixelsTo(byte[], offset)`
-复制到宿主复用的数组。借用视图均只在回调期间有效。
+**YUYV 的像素值约定**：NV12/NV21 直转保留源 Y，并对相邻两行色度平均；GRAY8 无论有无预览都保留源 Y。
+这些数值与旧的 YUYV→RGBX→NV 绕行结果可能不同。MJPEG 的 NV12/NV21 仍使用原颜色转换；JPEG 直接 GRAY8 也不保证等于该 NV21 的 Y。
+接入 SDK 时按实际输入范围使用像素；详细说明见 [PERFORMANCE.zh-CN.md](PERFORMANCE.zh-CN.md)。
 
-`UvcCameraManager` 使用 USB 广播与五秒一次的兜底设备扫描。
-构造重载 `new UvcCameraManager(context, listener, devicePollMillis)` 接受 `0`（仅广播及首次扫描），
-或至少 1000 毫秒的扫描间隔。关闭轮询前需确认目标设备能可靠发送插入广播；
-缺少广播时，发现延迟取决于配置的轮询间隔。
-按业务选择设备支持的采集分辨率和帧率，不使用时关闭会话。
-实现和测量说明见 [PERFORMANCE.zh-CN.md](PERFORMANCE.zh-CN.md)。
+`UvcCameraManager` 默认使用 USB 广播与五秒一次的兜底扫描。
+`new UvcCameraManager(context, listener, devicePollMillis)` 可设为 `0`（仅广播及首次扫描），或至少 1000 毫秒的间隔。
+关闭轮询前应确认目标系统插入广播可靠；缺少广播时，发现延迟取决于轮询间隔。
 
 ## 示例与设备验收
+
+2026-11-04 在上述平板及 RGB/IR 摄像头上，59 项设备检查、24 组双路模式及 10 个切换阶段通过；
+另有 120 组 YUYV 数值组合、6 组 JPEG 步幅/异常恢复检查通过。性能测量后，59 项资源回归再次通过。
+完整证据范围见 [VALIDATION.md](VALIDATION.md)。
 
 `sample` 提供两个 TextureView、设备选择、三档分辨率、帧计数及亮度控制。
 示例默认仅预览，不创建空帧回调；需要像素消费时按前文接入示例添加 FrameListener。
