@@ -1,8 +1,7 @@
 name: Build and audit
+# Automatic CI/CD paused at the user's request on 2026-11-04.
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
