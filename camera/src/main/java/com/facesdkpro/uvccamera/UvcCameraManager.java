@@ -95,7 +95,7 @@ public final class UvcCameraManager implements AutoCloseable {
             public void onError(UsbDevice device, USBMonitor.USBException error) {
                 permissionFailed(device, "USB open failed", error);
             }
-        }, worker, devicePollMillis);
+        }, worker, worker, devicePollMillis);
         worker.post(monitor::register);
     }
 

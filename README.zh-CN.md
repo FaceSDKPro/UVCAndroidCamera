@@ -54,7 +54,7 @@ UvcCameraManager.Camera rgb = manager.open(rgbDevice, StreamConfig.defaults(), r
         });
 UvcCameraManager.Camera ir = manager.open(irDevice, StreamConfig.defaults(), null,
         (camera, frame) -> {
-            byte[] gray8 = frame.copyLuma(); // 从真实 IR 摄像头的 NV21/NV12 取 Y 平面。
+            ByteBuffer gray8 = frame.luma(); // 同步借用真实 IR 亮度；异步处理时用有界数组池配合 copyLumaTo。
         });
 
 rgb.withControls(control -> {
@@ -84,6 +84,10 @@ IR 人脸框、双路同人关联及活体算法由上层 SDK 管理。
 无预览模式等消费者就绪后才解码，SDK 忙时不再将过时 JPEG 解码为 RGB。
 纯预览模式省去像素回调线程，用原生预览计数检查启动状态。
 关闭时释放原生回调引用，取消所属会话的延时任务。
+USB 监控复用管理器的命令 Looper，省去额外的 Java 后台线程。
+原生构建排除 JPEG 编码/图片文件辅助功能，以及未使用的 YUV 缩放、旋转和比较模块，保留 SIMD 转换。
+五个原生库仅暴露经审查的内部接口，对外通过 Java API 接入。
+相同工具链下，四种 ABI 的共享库总字节从 6,895,160 降至 1,869,156（减少 72.9%）；电功耗需另行测量。
 
 IR 不需要预览时，可在 `StreamConfig` 中明确选择 `UVCCamera.PIXEL_FORMAT_GRAY8`。
 MJPEG 会直接解码为 `width * height` 字节的全范围灰度，不生成 RGBX 或色度数据；

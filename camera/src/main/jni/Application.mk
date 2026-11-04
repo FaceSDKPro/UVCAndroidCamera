@@ -39,3 +39,7 @@ APP_CFLAGS := \
 APP_OPTIM := release
 
 APP_SUPPORT_FLEXIBLE_PAGE_SIZES := true
+
+# Discard unreachable code after restricting the internal shared-library boundary.
+APP_CFLAGS += -ffunction-sections -fdata-sections
+APP_LDFLAGS += -Wl,--gc-sections

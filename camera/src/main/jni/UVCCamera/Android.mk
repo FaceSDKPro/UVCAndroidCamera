@@ -1,3 +1,4 @@
+# Modified by FaceSDKPro, 2026-11-04; see UPSTREAM.md.
 #/*
 # * UVCCamera
 # * library and sample to access to UVC web camera on non-rooted Android device
@@ -39,6 +40,7 @@ LOCAL_C_INCLUDES := \
 		$(LOCAL_PATH)/../rapidjson/include \
 
 LOCAL_CFLAGS := $(LOCAL_C_INCLUDES:%=-I%)
+LOCAL_CPPFLAGS += -fno-exceptions -fno-rtti
 LOCAL_CFLAGS += -DANDROID_NDK
 LOCAL_CFLAGS += -DACCESS_RAW_DESCRIPTORS
 LOCAL_CFLAGS += -O3 -fstrict-aliasing -fprefetch-loop-arrays
@@ -69,4 +71,7 @@ LOCAL_SRC_FILES := \
 LOCAL_MODULE    := UVCCamera
 LOCAL_LDFLAGS += -Wl,-z,max-page-size=16384
 LOCAL_LDFLAGS += -Wl,-z,common-page-size=16384
+LOCAL_LDFLAGS += -Wl,--version-script=$(LOCAL_PATH)/../exports/libUVCCamera.so.map
 include $(BUILD_SHARED_LIBRARY)
+# Keep map edits as link dependencies for incremental ndk-build.
+$(LOCAL_BUILT_MODULE): $(LOCAL_PATH)/../exports/libUVCCamera.so.map

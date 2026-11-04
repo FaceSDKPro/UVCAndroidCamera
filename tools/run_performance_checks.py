@@ -15,6 +15,10 @@ def main():
     parser.add_argument('--serial', required=True)
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--scenarios', nargs='+', choices=['headless', 'preview', 'slow', 'gray', 'preview-only'], default=['headless', 'preview', 'slow'])
+    parser.add_argument('--format', type=int, choices=range(9), default=3, help='Callback pixel format, 0..8')
+    parser.add_argument('--frame-type', type=int, choices=[5, 7], default=7, help='5: YUYV, 7: MJPEG')
+    parser.add_argument('--capture-fps', type=int, default=30)
+    parser.add_argument('--verify-buffers', action='store_true', help='Extra contract checks; leave off for CPU comparisons')
     parser.add_argument('--width', type=int, default=640)
     parser.add_argument('--height', type=int, default=480)
     parser.add_argument('--duration', type=int, default=15000, help='Milliseconds per sample; three samples after five seconds of warmup')
@@ -22,6 +26,10 @@ def main():
     args = parser.parse_args()
     if not 1000 <= args.duration <= 30000:
         parser.error('--duration must be 1000..30000 ms')
+    if args.verify_buffers and 'preview-only' in args.scenarios:
+        parser.error('--verify-buffers requires pixel callbacks; exclude preview-only')
+    if not 1 <= args.capture_fps <= 120:
+        parser.error('--capture-fps must be 1..120')
     output = args.output.resolve()
     if output == ROOT or ROOT in output.parents:
         parser.error('--output must be outside the repository')
@@ -40,7 +48,9 @@ def main():
         for scenario in args.scenarios:
             call('shell', 'am', 'force-stop', PACKAGE)
             thermal_before = call('shell', 'dumpsys', 'thermalservice')
-            cmd = ['shell', 'am', 'start', '-W', '-n', PACKAGE + '/.PerformanceProbeActivity', '--ei', 'width', str(args.width), '--ei', 'height', str(args.height), '--ei', 'duration', str(args.duration)]
+            cmd = ['shell', 'am', 'start', '-W', '-n', PACKAGE + '/.PerformanceProbeActivity', '--ei', 'width', str(args.width), '--ei', 'height', str(args.height), '--ei', 'duration', str(args.duration), '--ei', 'format', str(args.format), '--ei', 'frameType', str(args.frame_type), '--ei', 'captureFps', str(args.capture_fps)]
+            if args.verify_buffers:
+                cmd += ['--ez', 'verifyBuffers', 'true']
             if scenario in ('preview', 'preview-only'):
                 cmd += ['--ez', 'preview', 'true']
             if scenario == 'preview-only':
@@ -61,6 +71,8 @@ def main():
                     report = json.loads(base64.b64decode(lines[-1]).decode())
                     report.update(identity)
                     report['source_unchanged_after_test'] = identity['core_source_sha256'] == source_fingerprint()
+                    if args.verify_buffers and (report.get('invalid_buffers', 1) != 0 or report.get('checked_buffers', 0) < 6):
+                        raise RuntimeError('Frame format contract failed: ' + str(report))
                     if len(report['samples']) != 3:
                         raise RuntimeError('Incomplete performance samples: ' + logs)
                     (output / (scenario + '.json')).write_text(json.dumps(report, indent=2) + '\n')

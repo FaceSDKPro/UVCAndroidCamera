@@ -1,0 +1,38 @@
+# FaceSDKPro internal native ABI. Java API is the supported integration surface.
+{
+  global:
+    libusb_alloc_transfer;
+    libusb_attach_kernel_driver;
+    libusb_cancel_transfer;
+    libusb_claim_interface;
+    libusb_close;
+    libusb_control_transfer;
+    libusb_detach_kernel_driver;
+    libusb_exit;
+    libusb_free_config_descriptor;
+    libusb_free_device_list;
+    libusb_free_ss_endpoint_companion_descriptor;
+    libusb_free_transfer;
+    libusb_get_active_config_descriptor;
+    libusb_get_bus_number;
+    libusb_get_config_descriptor;
+    libusb_get_configuration;
+    libusb_get_device;
+    libusb_get_device_address;
+    libusb_get_device_descriptor;
+    libusb_get_device_list;
+    libusb_get_device_speed;
+    libusb_get_ss_endpoint_companion_descriptor;
+    libusb_get_string_descriptor_ascii;
+    libusb_handle_events_timeout_completed;
+    libusb_init;
+    libusb_open;
+    libusb_ref_device;
+    libusb_release_interface;
+    libusb_set_interface_alt_setting;
+    libusb_set_option;
+    libusb_submit_transfer;
+    libusb_unref_device;
+    libusb_wrap_sys_device;
+  local: *;
+};

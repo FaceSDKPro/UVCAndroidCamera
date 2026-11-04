@@ -1,0 +1,6 @@
+# FaceSDKPro internal native ABI. Java API is the supported integration surface.
+{
+  global:
+    JNI_OnLoad;
+  local: *;
+};

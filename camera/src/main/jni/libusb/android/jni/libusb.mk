@@ -1,3 +1,4 @@
+# Modified by FaceSDKPro, 2026-11-04; see UPSTREAM.md.
 # Android build config for libusb
 # Copyright © 2012-2013 RealVNC Ltd. <toby.gray@realvnc.com>
 #
@@ -69,4 +70,7 @@ else
 endif
 LOCAL_LDFLAGS += -Wl,-z,max-page-size=16384
 LOCAL_LDFLAGS += -Wl,-z,common-page-size=16384
+LOCAL_LDFLAGS += -Wl,--version-script=$(LOCAL_PATH)/../../../exports/libusb1.0.so.map
 include $(BUILD_SHARED_LIBRARY)
+# Keep map edits as link dependencies for incremental ndk-build.
+$(LOCAL_BUILT_MODULE): $(LOCAL_PATH)/../../../exports/libusb1.0.so.map

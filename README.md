@@ -58,7 +58,7 @@ UvcCameraManager.Camera rgb = manager.open(rgbDevice, StreamConfig.defaults(), r
         });
 UvcCameraManager.Camera ir = manager.open(irDevice, StreamConfig.defaults(), null,
         (camera, frame) -> {
-            byte[] gray8 = frame.copyLuma(); // Copy Y from a real IR camera's NV21/NV12 frame.
+            ByteBuffer gray8 = frame.luma(); // Borrow Y synchronously; use a bounded copyLumaTo pool for async work.
         });
 
 rgb.withControls(control -> {
@@ -93,6 +93,11 @@ MJPEG decoders are reused per decoding thread. Both input and callback queues re
 Headless sessions decode when the consumer is ready, so a busy SDK does not force obsolete JPEGs through RGB conversion.
 Preview-only sessions omit the pixel callback thread and use a native preview counter for startup checks.
 Native callback references and per-session delayed tasks are released/cancelled at close.
+USB monitoring shares the manager's command looper, avoiding a second Java background thread.
+The native build excludes JPEG encoding/image-file helpers and unused YUV scaling, rotation and comparison modules.
+SIMD conversions remain enabled. The five native libraries expose a reviewed internal interface; Java is the supported integration API.
+Across the four ABIs, native library bytes decreased from 6,895,160 to 1,869,156 (72.9%) with the same toolchain.
+This is a binary size result; device power requires separate measurement.
 
 For IR analysis without a preview, explicitly select `UVCCamera.PIXEL_FORMAT_GRAY8` in `StreamConfig`.
 MJPEG is then decoded directly into packed, full-range grayscale (`width * height` bytes), without RGBX or chroma output.

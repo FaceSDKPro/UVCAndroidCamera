@@ -102,6 +102,7 @@ public final class USBMonitor {
      * Handler that is on worker thread
      */
     private final Handler mAsyncHandler;
+    private final boolean ownsAsyncHandler;
     private volatile boolean mDestroyed;
 
     /**
@@ -156,6 +157,15 @@ public final class USBMonitor {
     }
 
     public USBMonitor(final Context context, final OnDeviceConnectListener listener, final Handler handler, long devicePollMillis) {
+        this(context, listener, handler, null, devicePollMillis);
+    }
+
+    /** Reuse an owner's background looper. destroy() never quits an externally owned looper. */
+    public USBMonitor(final Context context, final OnDeviceConnectListener listener, final Handler handler,
+                      final Handler usbWorkHandler, long devicePollMillis) {
+        if (usbWorkHandler != null && usbWorkHandler.getLooper() == Looper.getMainLooper()) {
+            throw new IllegalArgumentException("USB work must use a background looper");
+        }
         if (devicePollMillis != 0 && devicePollMillis < 1000) throw new IllegalArgumentException("Polling must be 0 or >= 1000 ms");
         this.devicePollMillis = devicePollMillis;
         if (DEBUG) Log.v(TAG, "USBMonitor:Constructor");
@@ -166,7 +176,8 @@ public final class USBMonitor {
         mUsbManager = (UsbManager) context.getSystemService(Context.USB_SERVICE);
         mOnDeviceConnectListener = listener;
         mListenerHandler = handler;
-        mAsyncHandler = HandlerThreadHandler.createHandler(TAG);
+        ownsAsyncHandler = usbWorkHandler == null;
+        mAsyncHandler = ownsAsyncHandler ? HandlerThreadHandler.createHandler(TAG) : usbWorkHandler;
         mDestroyed = false;
         if (DEBUG) Log.v(TAG, "USBMonitor:mUsbManager=" + mUsbManager);
     }
@@ -205,7 +216,7 @@ public final class USBMonitor {
             }
 
             try {
-                mAsyncHandler.getLooper().quit();
+                if (ownsAsyncHandler) mAsyncHandler.getLooper().quit();
             } catch (final Exception e) {
                 Log.e(TAG, "destroy:", e);
             }

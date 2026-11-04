@@ -52,6 +52,19 @@
 这些优化不会停止仍在运行的 USB 采集，也不提供 RGB/IR 硬件同步。
 低功耗接入、颜色范围和性能验收边界见 [PERFORMANCE.zh-CN.md](PERFORMANCE.zh-CN.md)。
 
+## 原生构建与线程继续裁剪（2026-11-04）
+
+- 通过五份 ELF version script 限制跨库符号，保留合计 133 个已审查入口；按函数/数据分段并回收不可达代码。四种 ABI 都校验实际导出、跨库引用、依赖和机器类型，Java/JNI API 继续保留。
+- JPEG 只保留本采集链所需的解码入口；编码、变换及 BMP/PPM 文件辅助代码退出构建。libuvc 的旧 MJPEG 转换、libyuv 的第二套 JPEG 入口不再参与构建，后两库不再依赖 JPEG 动态库。
+- libyuv 只编译本采集链需要的转换及 SIMD 内核；比较、旋转、缩放等模块退出构建。实际用到的 C++ 包装没有异常/RTTI 使用，明确关闭这些编译支持。
+- 管理器的 USB 事件、轮询和命令共用后台 Looper；USBMonitor 的旧构造方式继续自行持有线程，新构造方式不退出调用者拥有的 Looper。
+- 删除九个未参与构建的 origin/orgin 副本及示例/测试构建脚本，保留 canonical 源码、许可及版权文本。
+- 首次打开在模式协商返回 `-51` 时，对原分辨率、格式和帧率仅重试一次，与已有 `setPreviewSize` 的格式切换兼容处理一致，不选择其他模式。
+- 链接脚本通过显式 make 目标依赖和 Gradle 输入跟踪。验证时临时增加一个已存在的 USB 导出，确认四 ABI 都重新链接、制品门禁拒绝额外导出，再恢复并重新检查。
+- ELF 元数据检查器与 NDK 的 llvm-nm/llvm-readelf 对全部 20 个共享库交叉核对。
+
+实现采用 [Android NDK 符号可见性说明](https://developer.android.com/ndk/guides/symbol-visibility)中的 version script 方式。裁剪的原生 C/C++ 接口是实现细节；新增跨库调用时需更新导出清单并完成四 ABI 验证。体积、真机和未执行项见 [VALIDATION.md](VALIDATION.md)。
+
 ## 规模
 
 按初始裁剪快照统计，Java 主代码由 **74 个文件 / 20,960 行**，减为 **15 个文件 / 6,379 行**

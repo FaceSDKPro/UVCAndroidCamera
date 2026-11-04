@@ -1,3 +1,4 @@
+# Modified by FaceSDKPro, 2026-11-04; see UPSTREAM.md.
 #/*
 # * Licensed under the Apache License, Version 2.0 (the "License");
 # * you may not use this file except in compliance with the License.
@@ -61,25 +62,9 @@ LOCAL_ASMFLAGS += -DELF
 # the list of source files that the build system uses to generate the module
 LOCAL_SRC_FILES = \
 		jcapimin.c \
-		jcapistd.c \
-		jccoefct.c \
-		jccolor.c \
-		jcdctmgr.c \
-		jchuff.c \
-		jcicc.c \
-		jcinit.c \
-		jcmainct.c \
-		jcmarker.c \
-		jcmaster.c \
 		jcomapi.c \
-		jcparam.c \
-		jcphuff.c \
-		jcprepct.c \
-		jcsample.c \
-		jctrans.c \
 		jdapimin.c \
 		jdapistd.c \
-		jdatadst.c \
 		jdatasrc.c \
 		jdcoefct.c \
 		jdcolor.c \
@@ -96,9 +81,6 @@ LOCAL_SRC_FILES = \
 		jdsample.c \
 		jdtrans.c \
 		jerror.c \
-		jfdctflt.c \
-		jfdctfst.c \
-		jfdctint.c \
 		jidctflt.c \
 		jidctfst.c \
 		jidctint.c \
@@ -111,18 +93,11 @@ LOCAL_SRC_FILES = \
 
 LOCAL_SRC_FILES += \
 		jaricom.c \
-		jcarith.c \
 		jdarith.c \
 
 LOCAL_SRC_FILES += \
 		turbojpeg.c \
-		transupp.c \
-		jdatadst-tj.c \
-		jdatasrc-tj.c \
-		rdbmp.c \
-		rdppm.c \
-		wrbmp.c \
-		wrppm.c
+		jdatasrc-tj.c
 
 ifeq ($(TARGET_ARCH_ABI),armeabi)
 
@@ -162,8 +137,6 @@ endif
 # simd/jsimd.h simd/jcolsamp.inc simd/jsimdcfg.inc.h simd/jsimdext.inc simd/jdct.inc
 #	jsimdext.inc jcolsamp.inc jdct.inc
 
-LOCAL_CFLAGS += \
-	-DBMP_SUPPORTED -DPPM_SUPPORTED
 
 LOCAL_CPPFLAGS += -Wno-incompatible-pointer-types
 
@@ -191,5 +164,8 @@ LOCAL_WHOLE_STATIC_LIBRARIES = jpeg-turbo212_static
 LOCAL_MODULE := jpeg-turbo212
 LOCAL_LDFLAGS += -Wl,-z,max-page-size=16384
 LOCAL_LDFLAGS += -Wl,-z,common-page-size=16384
+LOCAL_LDFLAGS += -Wl,--version-script=$(LOCAL_PATH)/../exports/libjpeg-turbo212.so.map
 include $(BUILD_SHARED_LIBRARY)
+# Keep map edits as link dependencies for incremental ndk-build.
+$(LOCAL_BUILT_MODULE): $(LOCAL_PATH)/../exports/libjpeg-turbo212.so.map
 

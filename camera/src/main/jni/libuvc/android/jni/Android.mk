@@ -1,3 +1,4 @@
+# Modified by FaceSDKPro, 2026-11-04; see UPSTREAM.md.
 # Modified by FaceSDKPro, 2026-11-03; see UPSTREAM.md for changes.
 #/*********************************************************************
 #* Software License Agreement (BSD License)
@@ -56,7 +57,6 @@ LOCAL_EXPORT_LDLIBS := -llog
 
 LOCAL_ARM_MODE := arm
 
-LOCAL_SHARED_LIBRARIES += jpeg-turbo212
 LOCAL_SHARED_LIBRARIES += usb1.0
 
 LOCAL_SRC_FILES := \
@@ -67,8 +67,7 @@ LOCAL_SRC_FILES := \
 		src/frame.c \
 		src/init.c \
 		src/stream.c \
-		src/misc.c \
-		src/frame-mjpeg.c
+		src/misc.c
 
 LOCAL_MODULE := libuvc_static
 include $(BUILD_STATIC_LIBRARY)
@@ -86,4 +85,7 @@ LOCAL_DISABLE_FATAL_LINKER_WARNINGS := true
 LOCAL_MODULE := uvc
 LOCAL_LDFLAGS += -Wl,-z,max-page-size=16384
 LOCAL_LDFLAGS += -Wl,-z,common-page-size=16384
+LOCAL_LDFLAGS += -Wl,--version-script=$(LOCAL_PATH)/../exports/libuvc.so.map
 include $(BUILD_SHARED_LIBRARY)
+# Keep map edits as link dependencies for incremental ndk-build.
+$(LOCAL_BUILT_MODULE): $(LOCAL_PATH)/../exports/libuvc.so.map

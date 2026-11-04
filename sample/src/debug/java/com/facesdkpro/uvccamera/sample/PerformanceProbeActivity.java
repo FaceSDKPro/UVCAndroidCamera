@@ -18,6 +18,7 @@ import com.serenegiant.usb.UVCCamera;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.nio.ByteBuffer;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -28,7 +29,9 @@ public final class PerformanceProbeActivity extends Activity {
     final Surface[] surfaces = new Surface[2];
     final AtomicInteger[] updates = {new AtomicInteger(), new AtomicInteger()};
     UvcCameraManager manager;
-    int opened, width, height, format, delay, duration, trial;
+    int opened, width, height, format, delay, duration, trial, frameType, captureFps;
+    boolean verifyBuffers;
+    final AtomicInteger checkedBuffers=new AtomicInteger(), invalidBuffers=new AtomicInteger();
     boolean preview, previewOnly, done;
     long cpuStart, wallStart;
     long[] counts, renders;
@@ -37,6 +40,9 @@ public final class PerformanceProbeActivity extends Activity {
         super.onCreate(state);
         width = getIntent().getIntExtra("width", 1920); height = getIntent().getIntExtra("height", 1080);
         format = getIntent().getIntExtra("format", UVCCamera.PIXEL_FORMAT_NV21);
+        frameType = getIntent().getIntExtra("frameType", UVCCamera.UVC_VS_FRAME_MJPEG);
+        captureFps = getIntent().getIntExtra("captureFps", 30);
+        verifyBuffers = getIntent().getBooleanExtra("verifyBuffers", false);
         delay = getIntent().getIntExtra("delay", 0); duration = getIntent().getIntExtra("duration", 15000);
         preview = getIntent().getBooleanExtra("preview", false);
         previewOnly = getIntent().getBooleanExtra("previewOnly", false);
@@ -64,8 +70,15 @@ public final class PerformanceProbeActivity extends Activity {
         List<UsbDevice> devices=manager.devices();
         if(devices.size()!=2){fail("Expected two cameras, found "+devices.size());return;}
         for(int i=0;i<2;i++) {
-            StreamConfig config=new StreamConfig(width,height,30,UVCCamera.UVC_VS_FRAME_MJPEG,format,0);
+            StreamConfig config=new StreamConfig(width,height,captureFps,frameType,format,0);
             cameras.add(manager.open(devices.get(i),config,preview?surfaces[i]:null,previewOnly?null:(camera,frame)->{
+                if(verifyBuffers) {
+                    int pixels=width*height;
+                    int expected=(format==2||format==3)?pixels*3/2:format==4||format==7?pixels*3:format==6?pixels*4:format==8?pixels:pixels*2;
+                    ByteBuffer view=frame.pixels();
+                    if(view.remaining()!=expected||!view.isDirect()||!view.isReadOnly())invalidBuffers.incrementAndGet();
+                    else {view.get(0);view.get(expected-1);checkedBuffers.incrementAndGet();}
+                }
                 if(delay>0)SystemClock.sleep(delay);
             }));
         }
@@ -93,7 +106,7 @@ public final class PerformanceProbeActivity extends Activity {
     void fail(String message){if(done)return;done=true;android.util.Log.e("UvcPerformance","ERROR="+message);if(manager!=null)manager.close();}
     void report() {
         try {
-            JSONObject report=new JSONObject();report.put("width",width);report.put("height",height);report.put("format",format);report.put("preview",preview);report.put("preview_only",previewOnly);report.put("callback_delay_ms",delay);report.put("samples",samples);report.put("images_saved",false);report.put("electrical_power_measured",false);report.put("exposure_locked",false);
+            JSONObject report=new JSONObject();report.put("width",width);report.put("height",height);report.put("format",format);report.put("frame_type",frameType);report.put("capture_fps",captureFps);report.put("verify_buffers",verifyBuffers);report.put("checked_buffers",checkedBuffers.get());report.put("invalid_buffers",invalidBuffers.get());report.put("preview",preview);report.put("preview_only",previewOnly);report.put("callback_delay_ms",delay);report.put("samples",samples);report.put("images_saved",false);report.put("electrical_power_measured",false);report.put("exposure_locked",false);
             android.util.Log.i("UvcPerformance","REPORT="+Base64.encodeToString(report.toString().getBytes("UTF-8"),Base64.NO_WRAP));
         }catch(Exception e){android.util.Log.e("UvcPerformance","report",e);}
     }

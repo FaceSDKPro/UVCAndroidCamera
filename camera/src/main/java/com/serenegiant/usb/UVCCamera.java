@@ -1,3 +1,4 @@
+// Additional exact-mode probe retry by FaceSDKPro, 2026-11-04; see UPSTREAM.md.
 // Modified by FaceSDKPro, 2026-11-03; see UPSTREAM.md for changes.
 /*
  *  UVCCamera
@@ -168,6 +169,8 @@ public class UVCCamera {
         }
 
         int r = nativeSetPreviewSize(mNativePtr, size.width, size.height, size.type, size.fps);
+        // Mirror setPreviewSize's bounded retry for firmware that changes format on the first probe.
+        if (r == -51) r = nativeSetPreviewSize(mNativePtr, size.width, size.height, size.type, size.fps);
         if (r != 0) {
             close(true);
             return r;

@@ -22,3 +22,10 @@ afterEvaluate { publishing { publications { release(MavenPublication) {
 } } } }
 
 dependencies { testImplementation 'junit:junit:4.13.2' }
+
+// ndk-build does not report linker script inputs to AGP. Track them explicitly.
+tasks.configureEach { task ->
+    if (task.name.startsWith('buildNdkBuild')) {
+        task.inputs.files(fileTree('src/main/jni/exports') { include '*.map' }).withPropertyName('nativeExportMaps')
+    }
+}

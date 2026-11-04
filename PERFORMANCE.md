@@ -59,3 +59,35 @@ Wireless ADB disconnected during the grayscale run. The final candidate's full d
 GRAY8/preview-only measurements, controlled A/B repetition and electrical power measurements remain pending.
 A preliminary 1920×1080 request was rejected by the baseline with `UVC_ERROR_INVALID_MODE`; it is not included as a passed case.
 Build/unit/static results and historical validation are recorded separately in [VALIDATION.md](VALIDATION.md) (Chinese).
+
+## Native build and thread trimming on 2026-11-04
+
+The four-ABI native payload changed from **6,895,160 to 1,869,156 bytes (72.9% smaller)** with the same NDK/toolchain.
+Five version scripts retain 133 reviewed cross-library entry points. Function/data sections allow unused code to be collected.
+JPEG encoding, transforms, BMP/PPM helpers, legacy libuvc/libyuv JPEG paths, and unused YUV compare/rotate/scale modules leave the build.
+SIMD conversion kernels remain. The native C/C++ boundary is private; integration uses the Java API.
+
+USB monitoring now shares the manager's command looper. An externally owned looper is preserved when the monitor is destroyed.
+The device harness checks for one command thread and no extra USBMonitor thread.
+Native export/dependency checks run on all 20 libraries, including the two 64-bit ABIs' 16 KB ELF alignment.
+An incremental rebuild test verifies version-script edits across all ABIs and rejects an added export outside the reviewed policy.
+
+First-open negotiation now retries the identical requested mode once on `-51`, matching the existing mode-switch compatibility behavior.
+This addresses stateful format probing without selecting another resolution or rate.
+Detailed device and format results are in [VALIDATION.md](VALIDATION.md) (Chinese).
+The size reduction and removed thread are resource results. Controlled CPU results follow below; electrical consumption remains unmeasured.
+
+## Controlled CPU check on 2026-11-04
+
+The baseline is commit `5c972d9` before this round of trimming. The same local release-optimized measurement driver ran trimmed/baseline/baseline/trimmed rounds, using both cameras at 640×480 / MJPEG / 30 FPS. Manual exposure was set to 10 ms and read back on both devices. Each scenario warmed up for five seconds, then collected three five-second samples per round (six per variant/scenario). Original exposure mode/settings were restored and checked after all 16 scenarios (32 camera restorations). The tablet was left with the verified sample installed and stopped.
+
+CPU below is mean process CPU (sample range), with one core as 100%:
+
+| Scenario | Baseline CPU % | Trimmed CPU % | Baseline FPS, two cameras | Trimmed FPS, two cameras |
+|---|---:|---:|---|---|
+| Headless NV21 | 91.62 (81.99–100.28) | 92.87 (85.49–98.98) | 29.24 / 29.98 | 29.21 / 29.98 |
+| 80 ms callback delay | 84.01 (78.43–89.53) | 82.88 (79.74–85.23) | 11.22 / 11.19 | 11.26 / 11.16 |
+| Headless GRAY8 | 89.60 (87.47–90.91) | 88.13 (86.19–91.73) | 29.24 / 29.97 | 29.24 / 29.98 |
+| Preview only | 91.66 (89.70–94.46) | 91.53 (90.30–92.80) | 29.20 / 30.00 | 29.20 / 29.96 |
+
+Frame throughput was maintained. CPU sample ranges overlap and do not show a consistent reduction from this round of trimming. These measurements support the binary-size/thread reductions without establishing a steady-state CPU or electrical-power gain. The local measurement driver, input AAR/APK hashes and raw reports are retained outside the source repository.

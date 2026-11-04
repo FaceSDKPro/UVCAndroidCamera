@@ -79,6 +79,12 @@ public final class DeviceProbeActivity extends Activity {
             }
             public void onShutdown(){main.postDelayed(()->writeReport(),500);}
         });
+        int commandThreads=0,monitorThreads=0;
+        for(Thread thread:Thread.getAllStackTraces().keySet()){
+            if("UVC-commands".equals(thread.getName()))commandThreads++;
+            if("USBMonitor".equals(thread.getName()))monitorThreads++;
+        }
+        check("shared_usb_command_looper",commandThreads==1&&monitorThreads==0,"commands="+commandThreads+", extra_monitors="+monitorThreads);
         devices=manager.devices();check("two_devices",devices.size()==2,"count="+devices.size());
         if(devices.size()!=2){finishTest();return;}
         main.postDelayed(this::openCycle,500);main.postDelayed(()->{if(!finished){check("timeout",false,"120s deadline");finishTest();}},120000);
@@ -139,7 +145,9 @@ public final class DeviceProbeActivity extends Activity {
         else if(cycle<3)openCycle();
         else if(cycle==3){
             boolean stable=warmFds!=null;
-            for(String kind:new String[]{"usb","eventfd","eventpoll","socket","pipe"})stable&=value(current,kind)==value(warmFds,kind);
+            for(String kind:new String[]{"usb","eventfd","eventpoll","pipe"})stable&=value(current,kind)==value(warmFds,kind);
+            // Platform sockets can close during the run; a decrease is not a leaked connection.
+            stable&=value(current,"socket")<=value(warmFds,"socket");
             check("usb_event_fd_stability",stable,"warm="+warmFds+", final_headless="+current);openCycle();
         }else if(cycle<7)openCycle();
         else if(cycle==7){check("frame_buffers",badBuffers.get()==0&&grayChecks.get()==12,"bad="+badBuffers+", gray_copies="+grayChecks);check("controls",controlChecks==14,"reads="+controlChecks);openCycle();}

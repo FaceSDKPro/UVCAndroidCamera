@@ -1,0 +1,13 @@
+# FaceSDKPro internal native ABI. Java API is the supported integration surface.
+{
+  global:
+    ABGRToJ400;
+    ABGRToNV12;
+    ABGRToNV21;
+    ABGRToRGB565;
+    ABGRToYUY2;
+    ARGBToRAW;
+    ARGBToRGB24;
+    YUY2ToY;
+  local: *;
+};
