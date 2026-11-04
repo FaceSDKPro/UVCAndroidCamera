@@ -1,0 +1,16 @@
+<resources>
+    <style name="DemoTheme" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:colorAccent">@color/demo_accent</item>
+        <item name="android:windowBackground">@color/demo_background</item>
+        <item name="android:colorBackground">@color/demo_background</item>
+        <item name="android:textColorPrimary">@color/demo_text</item>
+        <item name="android:textColorSecondary">@color/demo_muted</item>
+        <item name="android:colorControlNormal">@color/demo_muted</item>
+        <item name="android:colorControlActivated">@color/demo_accent</item>
+        <item name="android:statusBarColor">@color/demo_background</item>
+        <item name="android:navigationBarColor">@color/demo_background</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowActionModeOverlay">true</item>
+    </style>
+</resources>

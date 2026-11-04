@@ -1,0 +1,12 @@
+<resources>
+    <color name="demo_background">#0B1220</color>
+    <color name="demo_surface">#131E30</color>
+    <color name="demo_input">#0D1728</color>
+    <color name="demo_border">#27364D</color>
+    <color name="demo_text">#EDF3FC</color>
+    <color name="demo_muted">#97A9C2</color>
+    <color name="demo_accent">#48D8B5</color>
+    <color name="demo_rgb">#79B8FF</color>
+    <color name="demo_ir">#F0BC70</color>
+    <color name="demo_error">#FF9292</color>
+</resources>

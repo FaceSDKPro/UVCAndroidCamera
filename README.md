@@ -193,11 +193,13 @@ Another 120 YUYV numerical combinations and six JPEG stride/error-recovery group
 Subsequent global review adds JNI reentrancy/reference, allocation-failure, USB-submission and RGBX stride-boundary checks. See [VALIDATION.md](VALIDATION.md) for the complete evidence scope (Chinese).
 
 `sample` opens the SDK Demo by default: explicit RGB/IR selection, independent resolution, capture FPS, MJPEG/YUYV and rotation settings,
-RGB preview, rotated NV21/GRAY8 dimensions, observed capture FPS and pairing statistics, with headless IR. Settings scroll independently while preview remains visible.
+a dark dashboard with RGB preview, rotated NV21/GRAY8 dimensions, observed capture FPS, pair rate and callback-arrival skew, with headless IR.
+Wide layouts place preview and settings side by side; narrow layouts stack them. Settings scroll independently when space allows; compact portrait screens scroll the full dashboard. Start/stop controls stay at the bottom. Blue RGB and amber IR accents distinguish channels, with a separate connection/error banner.
 `SdkDemoActivity.consumePair()` is the synchronous algorithm integration point; it validates pixels without simulating recognition or liveness.
-The device preview/control screen retains two TextureViews, device selection, independent resolution/FPS/preview rotation and brightness controls; that screen is preview-only.
+The top dual-preview button opens a screen with two TextureViews. Each channel has a settings dialog for device selection, independent resolution/FPS/transport/preview rotation and brightness where supported. This screen is preview-only and shows observed FPS and frame counts.
+Narrow or compact landscape screens scroll the preview cards so both streams retain a full image area.
+Selected settings survive screen rotation; acquisition stops with the Activity lifecycle and must be restarted manually. The interface uses native Android Views and vector resources with no added UI framework dependency.
 The installable `demo` build uses the local standard debug identity and R8, without diagnostic Activities.
-The device preview/control screen uses preview-only sessions; the SDK Demo consumes actual frame pairs.
 `deviceTest` is a separate acceptance build using Release optimization and JNI keep rules, signed with the local Debug identity.
 Its diagnostic Activity is excluded from the production `release` build.
 
