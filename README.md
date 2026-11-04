@@ -199,6 +199,9 @@ Wide layouts place preview and settings side by side; narrow layouts stack them.
 The top dual-preview button opens a screen with two TextureViews. Each channel has a settings dialog for device selection, independent resolution/FPS/transport/preview rotation and brightness where supported. This screen is preview-only and shows observed FPS and frame counts.
 Narrow or compact landscape screens scroll the preview cards so both streams retain a full image area.
 Selected settings survive screen rotation; acquisition stops with the Activity lifecycle and must be restarted manually. The interface uses native Android Views and vector resources with no added UI framework dependency.
+Both screens share device selection restored by USB identity; cancelling a settings dialog does not rely on list positions that may change after hotplug.
+On stop, failure or apply/restart, the dual-preview screen waits for the manager's `onShutdown` before releasing retired Surfaces or creating a replacement manager. Stale callbacks cannot update a new session.
+Statistics timers run only during capture sessions, and unchanged text/preview states are not reapplied. The dual-preview screen keeps the display awake only during capture and retains preview-only sessions without unused NV21 conversion.
 The installable `demo` build uses the local standard debug identity and R8, without diagnostic Activities.
 `deviceTest` is a separate acceptance build using Release optimization and JNI keep rules, signed with the local Debug identity.
 Its diagnostic Activity is excluded from the production `release` build.

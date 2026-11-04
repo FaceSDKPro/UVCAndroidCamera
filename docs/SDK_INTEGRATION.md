@@ -137,6 +137,7 @@ and positions/limits are preserved.
 
 Close the old session and wait for `onClosed` before applying new resolution, capture FPS, transport or rotation settings.
 The Demo apply/restart action follows this order, renegotiates capture and cancels a pending restart when hidden.
+With the lower-level `UvcCameraManager`, `close()` also drains asynchronously: wait for `onShutdown` before releasing its Surfaces/SurfaceTextures or creating a replacement manager. The dual-preview Demo follows this order for stop, failure and apply/restart, and checks callback ownership.
 Demo choices are common candidate settings, not a capability guarantee for the selected camera. Open errors and observed FPS are shown separately.
 
 ## Pixels, ownership and backpressure
