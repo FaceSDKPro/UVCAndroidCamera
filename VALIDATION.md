@@ -85,3 +85,29 @@ AAR SHA-256：`3778311615677cb3178951f140b522bb582f26e10917abeabb68ca426c9fd7e4`
 物理拔插、长期稳定性、硬件同步、16 KB 页真机、其他 Android 版本/ABI 真机及整机电功耗仍未执行。
 
 固定曝光 CPU 对照已完成：相同驱动、10 毫秒手动曝光回读、裁剪/基线/基线/裁剪四轮，四种场景共 48 段五秒样本。两路帧率保持一致，CPU 区间重叠，没有一致下降趋势；全部 32 次曝光恢复检查通过。首次独立测试包的 USB 授权失败尝试保留，不纳入结果；正式对照复用已授权的测试包身份，结束后恢复已验收示例、停止采集并移除临时工具。细表见 [PERFORMANCE.zh-CN.md](PERFORMANCE.zh-CN.md)。
+
+## HiFace NDK 对齐候选（2026-11-04）
+
+- 本地使用 NDK **29.0.14206865** / C++17；保持 AGP 8.13.2、Gradle 8.14.3 和 JDK 17，与 HiFace Android 对齐。库 API 21、sample API 23 及默认四 ABI 保留，支持显式 ARM 双 ABI 构建。
+- 核对四 ABI 的实际编译命令及 C/C++ bitcode 对象，分别为 84/87/73/73 个（armeabi-v7a/arm64-v8a/x86/x86_64），每 ABI 21 个 C++17 编译单元；每 ABI 的五个共享库链接均使用 ThinLTO。汇编 SIMD 保留。
+- 四 ABI 本地构建、camera/sample Release Lint、Release 和 R8 deviceTest 构建通过；6 项单元测试通过，失败/错误/跳过均为 0。无效 ABI 参数被构建配置明确拒绝。
+- 全部 20 个共享库通过导出/机器类型/依赖/逐库体积预算、16 KB ELF LOAD 对齐、RELRO/NOW、不可执行栈和无可写可执行 LOAD 检查。导出仍为每 ABI 合计 133 个。LLVM readelf/nm 独立交叉核对通过。
+- deviceTest 与 Release APK 的全部 20 个未压缩 so ZIP 数据位置均为 16,384 的倍数，与 AAR native 字节一致；官方 `zipalign -c -P 16 4` 通过。
+- 额外构造 ELF 4 KB 对齐、APK ZIP 错位和 so 超预算三种候选，制品检查均正确拒绝。原始失败实验及日志在仓库外保留。
+- 同一 Xiaomi 24091RPADC / Android 16 / arm64-v8a / 4 KB 页和 RGB/IR 相机上，**59 项设备检查全部通过**；MJPEG 九种格式加 YUYV RAW/NV21/GRAY8 共 **12 组双路格式检查全部通过**，无无效缓冲区。
+- 双路 1280×720 和 1920×1080 的 MJPEG/NV21 检查通过，分别验证 445/443 个缓冲区，错误均为 0；结束后停止采集。
+- ARM 双 ABI 构建/制品检查通过，10 个 so 与四 ABI AAR 内对应库逐字节相同。原生总字节 840,244，AAR 为 476,986 字节。
+
+本候选四 ABI 原生总字节 **1,869,156 → 1,844,380（减少 1.33%）**；AAR ZIP 字节 **867,986 → 879,206**（略增）。
+直接使用完整静态 libc++ 的实验为 2,583,240 原生字节，因此保留只满足基础 new/delete 的轻量 system 运行时，并显式关闭 sized deallocation；原因和未来迁移约束见 [NATIVE_BUILD.md](NATIVE_BUILD.md)。
+没有根据编译设置或包体变化推断 CPU/电功耗收益，本次未重跑此前固定曝光 CPU 对照。
+
+采集库与构建输入源码指纹：`4eb58deb05f42ea28d1533918154c86602f72827b3a7862389160adfdc52190f`。
+本次指纹范围新增根 build.gradle、gradle.properties 和 wrapper 属性，以覆盖集中管理的 NDK 配置；不与旧算法的指纹作相等比较。
+AAR SHA-256：`8852b53abaae5137c4dda7130ec0c7b9558dfb4a950bb531a2e288a8a80f7f38`。
+设备验收 APK SHA-256：`d68cfecd0ed89f4f91b75cfdfcf8d2cf504207967106b46bebb565ff51e703eb`。
+全部格式/设备测试期间输入未变；ARM 构建后恢复四 ABI，重读产物与已验收 AAR/APK 完整字节一致。
+原始证据和候选字节保存在源码仓库外，没有保存摄像头图像。
+
+本次全部检查本地执行，CI/CD 未触发，工作流继续只保留手动入口。
+16 KB 页真机运行、其他 ABI/Android 版本真机、物理拔插、长期稳定性、硬件同步与整机电功耗仍未执行；不将静态对齐或 4 KB 页平板运行记为这些项目通过。

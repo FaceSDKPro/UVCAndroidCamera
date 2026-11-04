@@ -1,0 +1,34 @@
+{
+  "description": "Release ELF byte ceilings for pinned NDK 29.0.14206865; review real per-library growth before changing.",
+  "max_native_bytes": 1900000,
+  "max_library_bytes": {
+    "arm64-v8a": {
+      "libUVCCamera.so": 131072,
+      "libjpeg-turbo212.so": 196608,
+      "libusb1.0.so": 77824,
+      "libuvc.so": 53248,
+      "libyuv.so": 24576
+    },
+    "armeabi-v7a": {
+      "libUVCCamera.so": 114688,
+      "libjpeg-turbo212.so": 208896,
+      "libusb1.0.so": 73728,
+      "libuvc.so": 49152,
+      "libyuv.so": 16384
+    },
+    "x86": {
+      "libUVCCamera.so": 122880,
+      "libjpeg-turbo212.so": 274432,
+      "libusb1.0.so": 73728,
+      "libuvc.so": 53248,
+      "libyuv.so": 36864
+    },
+    "x86_64": {
+      "libUVCCamera.so": 131072,
+      "libjpeg-turbo212.so": 270336,
+      "libusb1.0.so": 77824,
+      "libuvc.so": 53248,
+      "libyuv.so": 36864
+    }
+  }
+}

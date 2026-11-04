@@ -54,7 +54,7 @@ LOCAL_CFLAGS := -fvisibility=hidden -pthread
 LOCAL_CFLAGS += $(LOCAL_C_INCLUDES:%=-I%)
 LOCAL_CFLAGS += -DANDROID_NDK
 LOCAL_CFLAGS += -DACCESS_RAW_DESCRIPTORS
-LOCAL_CFLAGS += -O3 -fstrict-aliasing -fprefetch-loop-arrays
+LOCAL_CFLAGS += -fstrict-aliasing
 LOCAL_EXPORT_LDLIBS += -llog
 LOCAL_ARM_MODE := arm
 
@@ -68,8 +68,6 @@ else
   $(warning Use ndk-build USE_PC_NAME=1 to change the module name to the compatible usb-1.0.)
   $(warning USE_PC_NAME=1 may be the default in the future.)
 endif
-LOCAL_LDFLAGS += -Wl,-z,max-page-size=16384
-LOCAL_LDFLAGS += -Wl,-z,common-page-size=16384
 LOCAL_LDFLAGS += -Wl,--version-script=$(LOCAL_PATH)/../../../exports/libusb1.0.so.map
 include $(BUILD_SHARED_LIBRARY)
 # Keep map edits as link dependencies for incremental ndk-build.

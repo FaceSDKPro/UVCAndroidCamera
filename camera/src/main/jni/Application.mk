@@ -1,4 +1,4 @@
-# Modified by FaceSDKPro, 2026-11-03; see UPSTREAM.md for changes.
+# Modified by FaceSDKPro, 2026-11-04; see UPSTREAM.md for changes.
 #/*
 # * UVCCamera
 # * library and sample to access to UVC web camera on non-rooted Android device
@@ -23,23 +23,21 @@
 # * Files in the jni/libjpeg, jni/libusb, jin/libuvc, jni/rapidjson folder may have a different license, see the respective files.
 #*/
 
-# This is just for mips, if you really needs MSA, un-comment and build with GCC.
-# Note: Supporting GCC on NDK is already deprecated and GCC will be removed from NDK soon.
-#NDK_TOOLCHAIN_VERSION := 4.9
-
+# Shared with HiFace: NDK r29, C++17, ThinLTO and release hardening.
+# Keep API 21 for existing users; HiFace's API 23 app can consume this AAR.
 APP_PLATFORM := android-21
 APP_ABI := armeabi-v7a arm64-v8a x86 x86_64
-
-APP_CFLAGS := \
--DLOG_NDEBUG \
-#  -DENABLE_DEBUG_LOGGING \
-#  -DUVC_DEBUGGING \
-
-#APP_OPTIM := debug
+# Only new/delete are used: avoid embedding a full libc++ in this standalone AAR.
+# All cross-library interfaces are C; no STL objects/exceptions cross the boundary.
+APP_STL := system
 APP_OPTIM := release
-
 APP_SUPPORT_FLEXIBLE_PAGE_SIZES := true
 
-# Discard unreachable code after restricting the internal shared-library boundary.
-APP_CFLAGS += -ffunction-sections -fdata-sections
-APP_LDFLAGS += -Wl,--gc-sections
+# Preserve codec SIMD and full optimization; reduce size at the reviewed ELF boundary.
+APP_CFLAGS := -DLOG_NDEBUG -O3 -flto=thin -fstack-protector-strong \
+    -ffunction-sections -fdata-sections
+# The system runtime has only unsized delete (C++17 otherwise emits sized delete).
+APP_CPPFLAGS := -std=c++17 -fno-sized-deallocation -fvisibility-inlines-hidden
+APP_LDFLAGS := -flto=thin -Wl,--gc-sections \
+    -Wl,-z,relro,-z,now,-z,noexecstack \
+    -Wl,-z,max-page-size=16384,-z,common-page-size=16384

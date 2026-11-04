@@ -16,13 +16,26 @@
 
 ## 构建
 
-JDK 17、Android SDK 36、NDK `27.0.12077973`；Gradle Wrapper 固定为 `8.14.3`。
+JDK 17、Android SDK 36、NDK `29.0.14206865`；Gradle Wrapper 固定为 `8.14.3`。
 支持 Android 5.0+，示例要求 Android 6.0+。四种 ABI：arm64-v8a、armeabi-v7a、x86、x86_64。
 
 ```sh
 ./gradlew :camera:assembleRelease :camera:testReleaseUnitTest :sample:assembleRelease
-python3 tools/check_artifact.py camera/build/outputs/aar/camera-release.aar
+python3 tools/check_artifact.py camera/build/outputs/aar/camera-release.aar --apk sample/build/outputs/apk/release/sample-release-unsigned.apk
 ```
+
+原生配置与 HiFace 对齐到 NDK 29、C++17、ThinLTO、栈保护及 RELRO/NOW/NX；保留编解码 SIMD。
+库继续兼容 API 21，示例为 API 23；默认不移除 x86 模拟器支持。HelloFace/HiFace 只需 ARM 时可构建双 ABI：
+
+```sh
+./gradlew :camera:assembleRelease -PuvcAbis=arm64-v8a,armeabi-v7a
+python3 tools/check_artifact.py camera/build/outputs/aar/camera-release.aar --abis arm64-v8a armeabi-v7a
+```
+
+有意保留轻量 `system` C++ 运行时，只使用基础 new/delete，不传递 STL 对象或异常；
+完整静态 libc++ 的实测体积代价及未来迁移约束见 [原生构建说明](NATIVE_BUILD.md)。
+制品检查覆盖逐库体积上限、四 ABI 的 16 KB ELF 对齐，以及指定 APK 的未压缩 so ZIP 对齐和字节一致性。
+当前四 ABI so 合计 **1,844,380 字节**，ARM 双 ABI **840,244 字节**；这不代表电功耗收益。
 
 必要时可显式指定 Google Maven 镜像：
 

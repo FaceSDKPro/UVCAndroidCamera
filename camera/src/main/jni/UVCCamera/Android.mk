@@ -43,7 +43,7 @@ LOCAL_CFLAGS := $(LOCAL_C_INCLUDES:%=-I%)
 LOCAL_CPPFLAGS += -fno-exceptions -fno-rtti
 LOCAL_CFLAGS += -DANDROID_NDK
 LOCAL_CFLAGS += -DACCESS_RAW_DESCRIPTORS
-LOCAL_CFLAGS += -O3 -fstrict-aliasing -fprefetch-loop-arrays
+LOCAL_CFLAGS += -fstrict-aliasing
 
 LOCAL_LDLIBS := -L$(SYSROOT)/usr/lib -ldl
 LOCAL_LDLIBS += -llog
@@ -69,8 +69,6 @@ LOCAL_SRC_FILES := \
 		registerUVCControl.cpp
 
 LOCAL_MODULE    := UVCCamera
-LOCAL_LDFLAGS += -Wl,-z,max-page-size=16384
-LOCAL_LDFLAGS += -Wl,-z,common-page-size=16384
 LOCAL_LDFLAGS += -Wl,--version-script=$(LOCAL_PATH)/../exports/libUVCCamera.so.map
 include $(BUILD_SHARED_LIBRARY)
 # Keep map edits as link dependencies for incremental ndk-build.

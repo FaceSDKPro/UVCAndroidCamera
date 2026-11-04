@@ -91,3 +91,11 @@ CPU below is mean process CPU (sample range), with one core as 100%:
 | Preview only | 91.66 (89.70–94.46) | 91.53 (90.30–92.80) | 29.20 / 30.00 | 29.20 / 29.96 |
 
 Frame throughput was maintained. CPU sample ranges overlap and do not show a consistent reduction from this round of trimming. These measurements support the binary-size/thread reductions without establishing a steady-state CPU or electrical-power gain. The local measurement driver, input AAR/APK hashes and raw reports are retained outside the source repository.
+
+## NDK 29 alignment on 2026-11-04
+
+The current build uses HiFace's NDK 29.0.14206865 and C++17, with verified ThinLTO, strong stack protection and RELRO/NOW/NX.
+Four-ABI native bytes changed from 1,869,156 to **1,844,380** (1.33% smaller); the two-ARM native payload is **840,244** bytes.
+AAR ZIP bytes increased slightly from 867,986 to 879,206. The minimal C++ runtime is retained after a static libc++ experiment grew native bytes to 2,583,240.
+Per-library budgets and both ELF/APK 16 KB alignment checks now guard the build. Configuration, ABI totals and tradeoffs are in [NATIVE_BUILD.md](NATIVE_BUILD.md).
+The fixed-exposure CPU table above belongs to the earlier NDK 27 candidates; this toolchain change has not repeated that CPU comparison or measured electrical consumption.

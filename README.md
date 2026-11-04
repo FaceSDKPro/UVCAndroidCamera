@@ -19,14 +19,27 @@ See [UPSTREAM.md](UPSTREAM.md) for the trimming analysis (Chinese).
 
 ## Build
 
-Use JDK 17, Android SDK 36 and NDK `27.0.12077973`. The Gradle Wrapper is pinned to `8.14.3`.
+Use JDK 17, Android SDK 36 and NDK `29.0.14206865`. The Gradle Wrapper is pinned to `8.14.3`.
 The library supports Android 5.0+; the sample requires Android 6.0+.
 Four ABIs are included: arm64-v8a, armeabi-v7a, x86 and x86_64.
 
 ```sh
 ./gradlew :camera:assembleRelease :camera:testReleaseUnitTest :sample:assembleRelease
-python3 tools/check_artifact.py camera/build/outputs/aar/camera-release.aar
+python3 tools/check_artifact.py camera/build/outputs/aar/camera-release.aar --apk sample/build/outputs/apk/release/sample-release-unsigned.apk
 ```
+
+Native settings match HiFace's NDK 29, C++17, ThinLTO, stack protection and RELRO/NOW/NX; codec SIMD is retained.
+API 21 library compatibility and x86 emulator support remain available. For HelloFace/HiFace ARM-only integration:
+
+```sh
+./gradlew :camera:assembleRelease -PuvcAbis=arm64-v8a,armeabi-v7a
+python3 tools/check_artifact.py camera/build/outputs/aar/camera-release.aar --abis arm64-v8a armeabi-v7a
+```
+
+The lightweight `system` C++ runtime is intentional: only basic new/delete are needed, with no STL objects or exceptions crossing libraries.
+See [native build notes](NATIVE_BUILD.md) for the measured static libc++ cost and migration constraints.
+The artifact audit enforces per-library size budgets, 16 KB ELF alignment for all ABIs, and uncompressed APK ZIP alignment/byte equality when an APK is supplied.
+Current native payload is **1,844,380 bytes for four ABIs**, or **840,244 bytes for the two ARM ABIs**; these are size results, not electrical-power gains.
 
 An explicit Google Maven mirror can be supplied when needed:
 

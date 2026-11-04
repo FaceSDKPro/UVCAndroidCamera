@@ -2,3 +2,11 @@ plugins {
     id 'com.android.library' version '8.13.2' apply false
     id 'com.android.application' version '8.13.2' apply false
 }
+
+// Match HiFace's native toolchain. Keep the standalone library's API 21 support.
+def supportedUvcAbis = ['armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64']
+def requestedUvcAbis = providers.gradleProperty('uvcAbis').orElse(supportedUvcAbis.join(',')).get().split(',').collect { it.trim() }
+if (requestedUvcAbis.any { !supportedUvcAbis.contains(it) } || requestedUvcAbis.toSet().size() != requestedUvcAbis.size()) {
+    throw new GradleException('uvcAbis must be a comma-separated subset of ' + supportedUvcAbis.join(','))
+}
+ext.uvcNative = [ndkVersion: '29.0.14206865', abis: requestedUvcAbis]

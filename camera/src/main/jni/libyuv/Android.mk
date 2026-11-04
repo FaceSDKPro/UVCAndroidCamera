@@ -32,8 +32,6 @@ include $(CLEAR_VARS)
 
 LOCAL_WHOLE_STATIC_LIBRARIES := libyuv_static
 LOCAL_MODULE := libyuv
-LOCAL_LDFLAGS += -Wl,-z,max-page-size=16384
-LOCAL_LDFLAGS += -Wl,-z,common-page-size=16384
 LOCAL_LDFLAGS += -Wl,--version-script=$(LOCAL_PATH)/../exports/libyuv.so.map
 include $(BUILD_SHARED_LIBRARY)
 # Keep map edits as link dependencies for incremental ndk-build.

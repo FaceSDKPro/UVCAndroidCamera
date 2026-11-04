@@ -83,8 +83,6 @@ LOCAL_WHOLE_STATIC_LIBRARIES = libuvc_static
 LOCAL_DISABLE_FATAL_LINKER_WARNINGS := true
 
 LOCAL_MODULE := uvc
-LOCAL_LDFLAGS += -Wl,-z,max-page-size=16384
-LOCAL_LDFLAGS += -Wl,-z,common-page-size=16384
 LOCAL_LDFLAGS += -Wl,--version-script=$(LOCAL_PATH)/../exports/libuvc.so.map
 include $(BUILD_SHARED_LIBRARY)
 # Keep map edits as link dependencies for incremental ndk-build.

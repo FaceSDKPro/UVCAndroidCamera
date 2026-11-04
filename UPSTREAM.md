@@ -65,6 +65,15 @@
 
 实现采用 [Android NDK 符号可见性说明](https://developer.android.com/ndk/guides/symbol-visibility)中的 version script 方式。裁剪的原生 C/C++ 接口是实现细节；新增跨库调用时需更新导出清单并完成四 ABI 验证。体积、真机和未执行项见 [VALIDATION.md](VALIDATION.md)。
 
+## 2026-11-04 的工具链与交付检查
+
+对齐 HiFace 的 NDK 29.0.14206865、C++17、ThinLTO 与安全链接参数；保留 SIMD 和原生导出边界。
+集中管理 NDK/可选 ABI，提供 ARM 双 ABI 构建；保留独立库 API 21 和默认四 ABI。
+轻量 C++ 运行时与 HiFace 的差异基于实际体积测量，原因与迁移约束见 [NATIVE_BUILD.md](NATIVE_BUILD.md)。
+新增逐库体积预算、全部 ABI 的 ELF LOAD/安全属性检查，以及可选 APK 的 16 KB ZIP 对齐和 native 字节一致性检查。
+同时核对实际 C/C++ bitcode、ThinLTO 链接命令，避免只在配置中声明优化。
+工作流仍只有手动入口，更新未来手动构建所需 NDK 包版本，本次不触发 CI/CD。
+
 ## 规模
 
 按初始裁剪快照统计，Java 主代码由 **74 个文件 / 20,960 行**，减为 **15 个文件 / 6,379 行**
