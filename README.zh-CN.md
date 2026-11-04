@@ -17,8 +17,7 @@
 - **IR 路**：另一个 UVC 设备，输出一路真实近红外画面，用于上层红外活体评估。
 
 这里通常所说的“两个 Camera ID”，准确地说是 **Android USB Host 枚举出的两个 `UsbDevice` 标识**。
-本库直接通过 USB Host / libusb 访问 UVC 设备，不依赖 Camera2 的 `cameraId`，也不要求设备被系统 Camera2 枚举。
-RGB/IR 角色按 VID/PID 或用户配置绑定；插拔后重新枚举，不能依赖设备列表顺序或假定设备标识永久不变。
+本库直接通过 USB Host / libusb 访问 UVC 设备。RGB/IR 角色按 VID/PID 或用户配置绑定。
 
 **当前双目接口不支持单视频流输出的 RGB/IR 模组**，包括将两幅画面左右/上下拼接到同一帧、
 或在同一路流中交替输出 RGB/IR 的设备；同一 USB 设备内的多个 VideoStreaming 接口也尚未适配。
@@ -31,84 +30,6 @@ RGB/IR 角色按 VID/PID 或用户配置绑定；插拔后重新枚举，不能�
 平板横屏实拍：左侧为 RGB 可见光，右侧为近红外（IR），来自两个独立 UVC 设备。
 截图展示双路预览、独立参数入口及实际帧率；识别与活体判断由上层 SDK 实现。
 
-## SDK 与 Demo 交付
-
-当前本地 SDK 版本 **0.3.0**，供 HelloFace SDK 集成开发人员引入；当前没有接入或修改 HelloFace。
-
-```sh
-./gradlew prepareSdk
-```
-
-本地构建、单元测试、Lint 和制品审计后，生成 `build/sdk/uvc-android-camera-0.3.0.zip`：
-包含 AAR、源码 JAR、本地 Maven 仓库、可安装 Demo、只依赖二进制 SDK 的独立 Demo 源码及校验清单。
-不执行远端发布或 CI/CD。详细引入方式及完整示例见 [SDK 接入说明](docs/SDK_INTEGRATION.zh-CN.md)。
-
-- `DualCameraSession`：RGB NV21 + IR GRAY8、RGB 单路预览、有界缓冲和串行帧对回调。
-- `Nv21Planes`：直接切出 Y/U/V Buffer，便于构造算法 SDK 的 YUV 帧，无 Bitmap/I420 绕行。
-- RGB/IR 可分别配置采集分辨率、FPS 和顺时针 0°/90°/180°/270° 旋转；Demo 支持修改后“应用并重启”。
-- `FrameTransforms` 在原有池缓冲中旋转 NV21/NV12/GRAY8；`PreviewTransform` 提供 TextureView 的等比预览旋转。
-- 一路失败或断开即结束双路，等待清理完成后显式重试；不会自动降级单目。
-- 配对使用回调到达时间，仅为软件关联，不代表同步曝光、同一张脸或活体通过。
-
-上游源码基线：`fcdae5f9a194e2111d57019176b53470a120415b`。
-
-保留独立 USB 摄像头并发、单路预览、无预览采集、像素帧回调、UVC 标准设备控制、权限队列及插拔通知。
-删除拍照保存、录像、录音、编码器、Java OpenGL 多画面渲染和旧示例。库无第三方 Java 运行时依赖，
-仅声明 CAMERA 权限及 USB Host 能力。完整分析见 [UPSTREAM.md](docs/UPSTREAM.md)。
-
-## 优化与实测
-
-围绕 HelloFace 的 RGB + IR 连续采集，主要减少解码、内存复制和线程转发：
-
-- **YUYV 直接转 NV12/NV21**：ARM 使用 NEON，保留源亮度，不再绕经 RGBX；转换内核无需临时缓冲。
-- **纯 MJPEG 预览直接解码到 Surface**：按实际步幅写入，省去 RGBX 中间帧及整帧复制。
-- **无预览采集减少一次线程转发**：消费者就绪后才解码，只保留最新帧，避免处理过时 JPEG。
-- **减少常驻开销**：复用解码器和帧缓冲，USB 监控共用命令线程；原生构建保留 SIMD，裁掉未使用的编码、缩放等模块。像素旋转使用独立的小型原生内核。
-
-采集路径版本 `c0d095c` 曾在 Xiaomi 24091RPADC（Android 16）和两台 RGB/IR 摄像头上，以 640×480、双路 YUYV 请求各 15 FPS、固定 10 ms 曝光进行对照，
-**平均每交付一帧的进程 CPU 时间由 28.30 ms 降至 25.46 ms，约减少 10%**，实际吞吐略高于基线。
-该版本的完整对照共 60 段样本；MJPEG 各场景的 CPU 区间有重叠，整机电功耗尚未测量。条件、帧率和数据见 [性能记录](docs/PERFORMANCE.zh-CN.md)。
-
-当前 NDK 29 构建体积：
-
-| 项目 | 字节数 |
-|---|---:|
-| 四 ABI 的 20 个 `.so`，未压缩合计 | 1,893,020 |
-| ARM 双 ABI 的 10 个 `.so`，未压缩合计 | 868,816 |
-| SDK 0.3.0 四 ABI Release AAR，ZIP 包 | 926,034 |
-
-逐库体积预算和 **1,900,000 字节**原生总量上限持续检查；全部 20 个 `.so` 的 **16 KB ELF 对齐**及示例 APK 的 **16 KB ZIP 对齐**已通过。
-16 KB 页真机运行仍待验证。工具链、C++ 运行时取舍及检查方法见 [NATIVE_BUILD.md](docs/NATIVE_BUILD.md)。
-
-## 构建
-
-JDK 17、Android SDK 36、NDK `29.0.14206865`；Gradle Wrapper 固定为 `8.14.3`。
-支持 Android 5.0+，示例要求 Android 6.0+。四种 ABI：arm64-v8a、armeabi-v7a、x86、x86_64。
-
-```sh
-./gradlew :camera:assembleRelease :camera:testReleaseUnitTest :sample:assembleRelease
-python3 tools/check_artifact.py camera/build/outputs/aar/camera-release.aar --apk sample/build/outputs/apk/release/sample-release-unsigned.apk
-```
-
-原生配置与 HiFace 对齐到 NDK 29、C++17、ThinLTO、栈保护及 RELRO/NOW/NX；保留编解码 SIMD。
-库继续兼容 API 21，示例为 API 23；默认不移除 x86 模拟器支持。HelloFace/HiFace 只需 ARM 时可构建双 ABI：
-
-```sh
-./gradlew :camera:assembleRelease -PuvcAbis=arm64-v8a,armeabi-v7a
-python3 tools/check_artifact.py camera/build/outputs/aar/camera-release.aar --abis arm64-v8a armeabi-v7a
-```
-
-使用轻量 `system` C++ 运行时满足基础 new/delete，不传递 STL 对象或异常；原因和后续迁移约束见 [原生构建说明](docs/NATIVE_BUILD.md)。
-制品检查同时核对权限、原生导出、依赖、体积、ELF/APK 对齐，以及 APK 与 AAR 中的原生库字节一致性。
-
-必要时可显式指定 Google Maven 镜像：
-
-```sh
-./gradlew :camera:assembleRelease -PgoogleMavenMirror=https://maven.aliyun.com/repository/google
-```
-
-默认使用 Google/Maven Central；不使用 JCenter、JitPack 或上游发布账号配置。
-构建输出位于各模块 `build/`，不提交 AAR、APK、原生二进制或本机签名材料。
 
 ## 接入
 
@@ -184,10 +105,6 @@ IR 人脸框、双路同人关联及活体算法由上层 SDK 管理。
 
 ## 示例与设备验收
 
-2026-11-04 在上述平板及 RGB/IR 摄像头上，59 项设备检查、24 组双路模式及 10 个切换阶段通过；
-另有 120 组 YUYV 数值组合、6 组 JPEG 步幅/异常恢复检查通过。性能测量后，59 项资源回归再次通过。
-后续全局复核增加了 JNI 重入/引用、分配失败、USB 提交及 RGBX 步幅边界检查；完整证据范围见 [VALIDATION.md](docs/VALIDATION.md)。
-
 `sample` 默认进入 SDK Demo：明确选择 RGB/IR，每路独立设置分辨率、采集 FPS、MJPEG/YUYV 和旋转角度；
 深色面板显示 RGB 预览、旋转后的 NV21/GRAY8 宽高、实际采集 FPS、帧对速率及回调到达时间差，IR 无预览。
 横屏采用预览与设置并排布局，窄屏采用上下布局；空间充足时参数区独立滚动，紧凑竖屏支持整页滚动，开始/停止按钮固定在底部。RGB 蓝色、IR 琥珀色用于区分通道，连接状态和错误独立显示。
@@ -226,9 +143,3 @@ Buffer/GRAY8 契约、设备参数读取、两路预览更新及资源释放，�
 | [上游裁剪分析](docs/UPSTREAM.md) | 保留/删除的功能及实现取舍 |
 | [验收记录](docs/VALIDATION.md) | 历史候选、真机结果和未执行范围 |
 
-## 来源与许可
-
-Java/JNI 适配层沿用 Apache-2.0；原文件版权和修改说明保留。
-libusb、libuvc、libjpeg-turbo、libyuv、RapidJSON 保留各自许可，详见 [NOTICE](NOTICE)、
-源码内的许可文件及 AAR 内 `META-INF/uvccamera/LICENSES/`。
-此工程采用新的精简管理 API；替换上游时请移除旧依赖，避免同名 JNI/底层类重复打包。
