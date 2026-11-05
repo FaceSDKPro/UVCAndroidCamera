@@ -5,8 +5,16 @@ android {
     ndkVersion rootProject.ext.uvcNative.ndkVersion
     defaultConfig { applicationId 'com.facesdkpro.uvccamera.sample'; minSdk 23; targetSdk 36; versionCode 5; versionName rootProject.ext.uvcSdkVersion }
     compileOptions { sourceCompatibility JavaVersion.VERSION_1_8; targetCompatibility JavaVersion.VERSION_1_8 }
+    signingConfigs {
+        release {
+            storeFile file('uvc-camera-release.jks')
+            storePassword 'HelloFace'
+            keyAlias 'uvc-camera'
+            keyPassword 'HelloFace'
+        }
+    }
     buildTypes {
-        release { minifyEnabled true; shrinkResources true; proguardFiles getDefaultProguardFile('proguard-android-optimize.txt') }
+        release { minifyEnabled true; shrinkResources true; proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'); signingConfig signingConfigs.release }
         demo {
             initWith release
             // Installable developer demonstration, using only this machine's standard debug identity.

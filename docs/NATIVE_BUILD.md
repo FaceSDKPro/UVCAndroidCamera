@@ -59,8 +59,8 @@ ARM 双 ABI AAR 为 476,986 字节，内含 840,244 字节原生库；每个 ARM
 With `--apk`, it also requires matching uncompressed native libraries with ZIP data offsets divisible by 16,384.
 
 ```sh
-python3 tools/check_artifact.py UVCCamera/build/outputs/aar/UVCCamera-release.aar --apk sample/build/outputs/apk/release/sample-release-unsigned.apk
-"$ANDROID_SDK_ROOT/build-tools/36.0.0/zipalign" -c -P 16 4 sample/build/outputs/apk/release/sample-release-unsigned.apk
+python3 tools/check_artifact.py UVCCamera/build/outputs/aar/UVCCamera-release.aar --apk sample/build/outputs/apk/release/sample-release.apk
+"$ANDROID_SDK_ROOT/build-tools/36.0.0/zipalign" -c -P 16 4 sample/build/outputs/apk/release/sample-release.apk
 ```
 
 本地检查同时使用 NDK llvm-readelf/llvm-nm 交叉核对 ELF，并使用官方 zipalign 核对 APK。

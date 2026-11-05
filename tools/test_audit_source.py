@@ -1,4 +1,4 @@
-"""Exercise the source gate with a reviewed image and disallowed staged payloads."""
+"""Exercise the source gate with reviewed public binaries and disallowed payloads."""
 from pathlib import Path
 import shutil
 import subprocess
@@ -7,6 +7,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 IMAGE = 'docs/images/dual-preview-landscape.png'
+PUBLIC_KEY = 'sample/uvc-camera-release.jks'
 
 
 class SourceAuditTest(unittest.TestCase):
@@ -42,7 +43,22 @@ class SourceAuditTest(unittest.TestCase):
         path = self.repo / IMAGE
         path.write_bytes(path.read_bytes() + b'unapproved trailing payload')
         self.git('add', IMAGE)
-        self.assertRejected('public screenshot checksum mismatch')
+        self.assertRejected('public binary checksum mismatch')
+
+    def test_reviewed_public_signing_key_passes(self):
+        path = self.repo / PUBLIC_KEY
+        path.parent.mkdir(parents=True)
+        shutil.copyfile(ROOT / PUBLIC_KEY, path)
+        self.git('add', PUBLIC_KEY)
+        result = self.audit()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_changed_public_signing_key_is_rejected(self):
+        path = self.repo / PUBLIC_KEY
+        path.parent.mkdir(parents=True)
+        path.write_bytes((ROOT / PUBLIC_KEY).read_bytes() + b'unapproved trailing payload')
+        self.git('add', PUBLIC_KEY)
+        self.assertRejected('public binary checksum mismatch')
 
     def test_other_image_is_rejected_even_with_the_same_bytes(self):
         name = 'docs/images/unapproved.png'
