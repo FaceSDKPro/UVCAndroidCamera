@@ -60,4 +60,19 @@ public class FrameContractTest {
         assertEquals(8,frame.pixels().remaining()); assertArrayEquals(frame.copyPixels(),frame.copyLuma());
         byte[] target=new byte[8];frame.copyLumaTo(target,0);assertArrayEquals(frame.copyLuma(),target);
     }
+    @Test public void receiptAndCallbackTimesAreDistinctAndLegacyMetadataIsExplicit() {
+        CameraFrame frame=new CameraFrame(ByteBuffer.allocateDirect(12),nv21(),0,8,200,100,0xffffffffL);
+        assertEquals(100,frame.arrivalTimeNanos);assertEquals(200,frame.callbackTimeNanos);
+        assertEquals(100,frame.inputLatencyNanos());assertEquals(0xffffffffL,frame.nativeSequence);
+        CameraFrame legacy=new CameraFrame(ByteBuffer.allocateDirect(12),nv21(),8,200);
+        assertEquals(200,legacy.arrivalTimeNanos);assertEquals(0,legacy.receivedTimeNanos);
+        assertEquals(-1,legacy.nativeSequence);assertEquals(-1,legacy.inputLatencyNanos());
+    }
+    @Test public void lumaRangeFollowsTransportWithoutGuessingTheRangeOfSourceY() {
+        StreamConfig gray=new StreamConfig(4,2,30,UVCCamera.UVC_VS_FRAME_MJPEG,UVCCamera.PIXEL_FORMAT_GRAY8,0);
+        assertEquals(CameraFrame.LumaRange.FULL,new CameraFrame(ByteBuffer.allocateDirect(8),gray,1,1).lumaRange);
+        assertEquals(CameraFrame.LumaRange.VIDEO,new CameraFrame(ByteBuffer.allocateDirect(12),nv21(),1,1).lumaRange);
+        StreamConfig yuyv=new StreamConfig(4,2,30,UVCCamera.UVC_VS_FRAME_UNCOMPRESSED,UVCCamera.PIXEL_FORMAT_GRAY8,0);
+        assertEquals(CameraFrame.LumaRange.UNSPECIFIED,new CameraFrame(ByteBuffer.allocateDirect(8),yuyv,1,1).lumaRange);
+    }
 }

@@ -2,6 +2,7 @@
 // Device-native checks: production converter/decoder, synthetic input only.
 #include "YuyvToNv.h"
 #include "ConvertHelper.h"
+#include "FrameTiming.h"
 #include <assert.h>
 #include <initializer_list>
 #include <stdio.h>
@@ -47,9 +48,33 @@ static int testJpeg(const char *filename) {
     assert(fread(jpeg, 1, size, file) == static_cast<size_t>(size)); fclose(file);
     uvc_frame_t input = {}; input.data = jpeg; input.data_bytes = size;
     input.width = 34; input.height = 8; input.frame_format = UVC_FRAME_FORMAT_MJPEG;
+    input.sequence = 0xffffffffu;
+    input.capture_time_finished.tv_sec = 17; input.capture_time_finished.tv_nsec = 19;
     MjpegDecoder decoder;
     uvc_frame_t *packed = uvc_allocate_frame(0); assert(packed);
     assert(decoder.decode(&input, packed) == UVC_SUCCESS);
+    assert(packed->sequence == input.sequence && hostReceiptNanos(packed) == 17000000019LL);
+    uvc_frame_t *gray = uvc_allocate_frame(0); assert(gray);
+    assert(decoder.decode(&input, gray, true) == UVC_SUCCESS);
+    assert(gray->sequence == input.sequence && hostReceiptNanos(gray) == 17000000019LL);
+    // The preview expands exactly the algorithm's Y bytes, with a padded display stride.
+    // No second JPEG decode, no RGB->gray round trip and no mutation of the borrowed gray frame.
+    const int grayPitch = input.width * 4 + 12;
+    uint8_t *graySurface = static_cast<uint8_t *>(malloc(grayPitch * input.height + 2)); assert(graySurface);
+    memset(graySurface, 0xcd, grayPitch * input.height + 2);
+    assert(gray8ToPreview(gray, graySurface + 1, grayPitch) == UVC_SUCCESS);
+    for (unsigned y = 0; y < input.height; ++y) {
+        for (unsigned x = 0; x < input.width; ++x) {
+            const uint8_t g = static_cast<uint8_t *>(gray->data)[y * gray->step + x];
+            const uint8_t *pixel = graySurface + 1 + y * grayPitch + x * 4;
+            assert(pixel[0] == g && pixel[1] == g && pixel[2] == g && pixel[3] == 255);
+        }
+        for (unsigned x = input.width * 4; x < static_cast<unsigned>(grayPitch); ++x)
+            assert(graySurface[1 + y * grayPitch + x] == 0xcd);
+    }
+    assert(graySurface[0] == 0xcd && graySurface[grayPitch * input.height + 1] == 0xcd);
+    assert(gray8ToPreview(gray, graySurface + 1, input.width * 4 - 1) == UVC_ERROR_INVALID_PARAM);
+    uvc_free_frame(gray); free(graySurface);
     const size_t pitch = 48 * 4, bytes = pitch * input.height;
     uint8_t *surface = static_cast<uint8_t *>(malloc(bytes + 2)); assert(surface);
     memset(surface, 0xcd, bytes + 2);
@@ -72,7 +97,7 @@ static int testJpeg(const char *filename) {
     input.data_bytes = savedSize;
     assert(decoder.decode(&input, packed) == UVC_SUCCESS);
     uvc_free_frame(packed); free(jpeg); free(surface);
-    return 6;
+    return 10;
 }
 
 int main(int argc, char **argv) {

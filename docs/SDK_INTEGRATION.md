@@ -65,12 +65,15 @@ Bind RGB/IR roles using VID/PID, a port profile or explicit user selection, neve
 Each session requires two independent USB devices; multiple VideoStreaming interfaces within one device are not supported.
 
 ```java
-DualCameraSession session = new DualCameraSession(
+DualCameraSession session = DualCameraSession.create(
     context, selectedRgbDevice, selectedIrDevice,
     DualCameraConfig.defaults(), rgbSurface, null, // headless IR
     new DualCameraSession.Listener() {
         @Override public void onReady(DualCameraSession source) {
             // Main thread: streams are open. Actual pairs still require fresh, sufficiently close arrivals.
+            source.withControls(DualCameraSession.Role.RGB, control -> {
+                if (control.isBrightnessEnable()) control.setBrightnessPercent(50);
+            });
         }
         @Override public void onError(DualCameraSession source, String message, Throwable error) {
             // Main thread: both cameras are stopping. Invalidate previous business results.
@@ -86,15 +89,13 @@ DualCameraSession session = new DualCameraSession(
         // Complete synchronous processing before returning. Do not retain pair or these buffers.
     });
 
-session.withControls(DualCameraSession.Role.RGB, control -> {
-    if (control.isBrightnessEnable()) control.setBrightnessPercent(50);
-});
+session.start(); // Assign the handle before any asynchronous startup failure.
 
 // Stop when hidden, leaving the screen, or changing devices/modes. This does not block.
 session.close();
 ```
 
-Detach, permission denial, start failure, a throwing consumer, or five seconds without frames from either opened camera
+Detach, permission denial, start failure, a throwing consumer, five seconds without frames from either opened camera, or five seconds without a usable pair
 ends the entire session. Wait for `onClosed`, enumerate again and create a new session to retry.
 There is no silent device substitution or single-camera fallback.
 `onReady` proves neither simultaneous exposure nor a usable face.
@@ -152,14 +153,15 @@ Demo choices are common candidate settings, not a capability guarantee for the s
 | IR | GRAY8 | Packed intensity, rowStride=width | 307200 |
 
 Defaults are 640x480 MJPEG capture at 30 FPS per camera, at most 15 delivered pairs/s,
-at most 50 ms between callback arrivals and at most 150 ms age per frame at delivery.
+at most 50 ms between host frame receipts and at most 150 ms age per frame at delivery.
 Only RGB NV21 / IR GRAY8 are accepted by the paired API, up to portrait/landscape 1080p; dimensions may differ.
 Skew/age limits are adjustable software starting points, not calibrated liveness or sensor synchronization thresholds.
 
 Two reusable direct buffers per role (one in flight, one pending) bound the pairing pool to about 1.46 MiB at 640x480 or 9.89 MiB at dual 1080p,
 excluding native capture/decode/display caches. USB callbacks copy into the pool, retaining one latest pending frame per role.
 One worker delivers pairs serially, without an unbounded task backlog. After a slow consumer returns, the newest samples
-are considered; stale, out-of-order or excessively separated samples are dropped. Closing clears pool references and lets the active consumer finish.
+are considered; stale, out-of-order or excessively separated samples are dropped. Copy and rotation run outside the cross-camera lock, serialized per role. Expired inputs are rejected before pixel copy.
+Closing clears pool references and waits asynchronously for both the active consumer and in-progress copies.
 Limiting pair delivery does not lower camera capture FPS or automatically control IR illumination.
 
 The pair, frames and pixel views are borrowed only until `onFramePair` returns.
@@ -168,7 +170,11 @@ For longer ownership, copy into your own bounded pool while inside the callback.
 `Nv21Planes` slices views without copying pixels; the complete capture pipeline still includes copies.
 
 `sessionId` identifies a session within the process; `pairId` increases within that session. Neither tracks a person.
-`arrivalTimeNanos` is a host monotonic timestamp at the decoded callback, and `arrivalSkewNanos` describes those arrivals only.
+`arrivalTimeNanos` now uses native host receipt time before queues/decode, in Android elapsedRealtimeNanos time.
+`callbackTimeNanos` is Java delivery after decode; `receivedTimeNanos=0` / `nativeSequence=-1` explicitly indicates
+legacy native metadata, in which case arrival time falls back to callback time. `inputLatencyNanos()` measures
+receipt-to-Java latency (not pair waiting or algorithm time). `nativeSequence` is unsigned 32-bit and wraps;
+the original `sequence` remains a monotonic Java callback counter. `arrivalSkewNanos` compares host receipt times.
 It is not an exposure timestamp and proves no hardware synchronization. Independent cameras' clocks and sequence numbers
 cannot be compared directly. Processing can itself make results stale; validate result age and current session again.
 
@@ -179,15 +185,34 @@ This SDK has no HelloFace algorithm dependency or wrapper. A consumer can call t
 1. RGB: construct `Yuv420Frame` using the direct Y/U/V views and strides from `Nv21Planes`, explicitly selecting the correct
    color range/matrix. No Bitmap, RGB or I420 round trip is required.
 2. IR: use genuine GRAY8 IR measurements, an upright/unmirrored image and a valid face box in that IR image's coordinates.
-   The current algorithm's array API requires an explicit copy; this camera SDK does not change that ownership contract.
+   The published standalone array API requires an explicit copy; the private paired API accepts a synchronous direct view.
 3. Validate face correspondence, RGB-to-IR calibration, multiple-face rejection and asynchronous result association.
    RGB box coordinates cannot simply be reused on IR. Final business acceptance must bind the same valid sample;
    missing/timed-out IR and results from previous sessions must never be reused as acceptance.
 
-HelloFace 0.8.6's search liveness switch controls RGB liveness. Independent IR evaluation is not automatically part of the search outcome.
-This Demo does not invent a unified binocular algorithm API or simulate an acceptance result. That association contract still needs implementation and validation during integration.
+Published HelloFace 0.8.6's search liveness switch controls RGB liveness. Independent IR evaluation is not automatically part of that search outcome.
+HiFace's private development SDK now provides `RgbIrFrame` and `InfraredSearchConfig` for a paired search outcome; see
+[HiFace integration](HIFACE_INTEGRATION.zh-CN.md). It requires the matching development SDK, not the published 0.8.6 binaries.
+Camera calibration, face correspondence and human/attack effectiveness still require device validation. The standalone camera Demo performs no algorithm acceptance.
 
 Low-level pixels retain source orientation; paired callbacks apply the explicitly configured rotation. Neither API automatically mirrors or detects faces. Keep display transforms separate from algorithm coordinates.
 Direct MJPEG GRAY8 uses JPEG intensity range; YUYV GRAY8 preserves source Y. Do not assume a shared threshold across paths.
 MJPEG NV21 retains its RGBX conversion; YUYV NV21 preserves source luma. Confirm color metadata for the actual device/path.
 NDK, native size budgets and 16 KB ELF/APK alignment gates remain enforced; static alignment does not replace runtime testing on a 16 KB device.
+
+## Pair health and failure completion
+
+`onPairingStateChanged(session, diagnostics)` is sampled at 2 Hz and delivered only on changes: waiting for RGB/IR/both,
+paired, skew, expired, consumer busy, or closed. It is not a per-frame callback. Invalidate old business results on
+pair loss; a source frame or historic IR pass never substitutes for a current valid pair. Five seconds without a
+usable pair closes the session even when both cameras still produce frames. Thresholds are never relaxed to force pairing.
+
+`onFailure(session, role, failure)` preserves a structured code, device, cause and optional native open status.
+Role is null for whole-session failures. Its default calls the original `onError` once; override either callback.
+The original auto-start constructor remains available. `create()` owns no workers/USB/pixel pools until `start()`;
+close-before-start and partial startup failure still deliver one `onClosed`. Release Surfaces only after that callback.
+
+For GRAY8 callbacks, an enabled preview shows the same grayscale decode, expanded directly into Surface RGBA.
+No additional JPEG decode or RGBX intermediate is used. MJPEG GRAY8 reports `lumaRange=FULL`; MJPEG NV21/NV12 reports
+`VIDEO`; source YUYV luma is `UNSPECIFIED` and needs an explicit device profile. Preview toggling does not normalize
+or stretch algorithm pixels. Existing RGB NV21 conversion is retained.

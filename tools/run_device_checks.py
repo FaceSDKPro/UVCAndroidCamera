@@ -31,7 +31,10 @@ def main():
     parser.add_argument("--output", type=Path, required=True, help="Directory outside source control for raw evidence")
     parser.add_argument("--keep-app", action="store_true")
     parser.add_argument("--suite", choices=["capture", "dual-sdk"], default="capture")
+    parser.add_argument("--basic-dual", action="store_true", help="Only 640x480 dual capture/lifecycle cases; does not claim high-resolution mode acceptance")
     args = parser.parse_args()
+    if args.basic_dual and args.suite != "dual-sdk":
+        parser.error("--basic-dual requires --suite dual-sdk")
     try:
         args.output = output_directory(args.output)
     except ValueError as error:
@@ -54,7 +57,10 @@ def main():
     try:
         call("shell", "am", "force-stop", PACKAGE)
         call("shell", "pm", "grant", PACKAGE, "android.permission.CAMERA")
-        print(call("shell", "am", "start", "-W", "-n", PACKAGE + "/." + activity, "--es", "runId", run_id).stdout, flush=True)
+        command = ["shell", "am", "start", "-W", "-n", PACKAGE + "/." + activity, "--es", "runId", run_id]
+        if args.basic_dual:
+            command += ["--ez", "basic", "true"]
+        print(call(*command).stdout, flush=True)
         pid = call("shell", "pidof", PACKAGE).stdout.strip().split()[0]
         deadline = time.monotonic() + 140
         while time.monotonic() < deadline:
@@ -64,6 +70,7 @@ def main():
                 report["core_source_sha256"] = before
                 report["diagnostic_apk_sha256"] = apk_sha
                 report["suite"] = args.suite
+                report["mode_scope"] = "640x480-basic" if args.basic_dual else "full-existing-suite"
                 report["apk_unchanged_after_test"] = apk_sha == file_sha256(apk)
                 report["source_unchanged_after_test"] = before == source_fingerprint()
                 for key in ["ro.product.manufacturer", "ro.product.model", "ro.build.version.release", "ro.build.version.sdk"]:

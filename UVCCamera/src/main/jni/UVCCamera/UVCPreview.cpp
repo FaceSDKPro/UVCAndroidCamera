@@ -24,7 +24,7 @@
 */
 
 #include <stdlib.h>
-#include <linux/time.h>
+#include <time.h>
 #include <unistd.h>
 
 #ifndef LOG_NDEBUG
@@ -34,6 +34,7 @@
 #include "utilbase.h"
 #include "UVCPreview.h"
 #include "libuvc_internal.h"
+#include "FrameTiming.h"
 
 #define MAX_FRAME 1
 // RGBA_8888/RGBX_8888:4
@@ -96,6 +97,7 @@ UVCPreview::~UVCPreview() {
     if (attached) getVM()->DetachCurrentThread();
     mFrameCallbackObj = NULL;
     iframecallback_fields.onFrame = NULL;
+    iframecallback_fields.withTiming = false;
     clearPreviewFrame();
     clearCaptureFrame();
     clear_pool();
@@ -262,6 +264,7 @@ int UVCPreview::setFrameCallback(JNIEnv *env, jobject frame_callback_obj, int pi
         pauseCaptureLocked();
         if (!env->IsSameObject(mFrameCallbackObj, frame_callback_obj)) {
             iframecallback_fields.onFrame = NULL;
+            iframecallback_fields.withTiming = false;
             if (mFrameCallbackObj) {
                 env->DeleteGlobalRef(mFrameCallbackObj);
             }
@@ -270,9 +273,13 @@ int UVCPreview::setFrameCallback(JNIEnv *env, jobject frame_callback_obj, int pi
                 // get method IDs of Java object for callback
                 jclass clazz = env->GetObjectClass(frame_callback_obj);
                 if (LIKELY(clazz)) {
-                    iframecallback_fields.onFrame = env->GetMethodID(clazz,
-                                                                     "onFrame",
-                                                                     "(Ljava/nio/ByteBuffer;)V");
+                    // Optional overload: keep the original one-argument callback binary-compatible.
+                    iframecallback_fields.onFrame = env->GetMethodID(clazz, "onFrame", "(Ljava/nio/ByteBuffer;JJ)V");
+                    iframecallback_fields.withTiming = iframecallback_fields.onFrame != NULL;
+                    if (!iframecallback_fields.onFrame) {
+                        env->ExceptionClear();
+                        iframecallback_fields.onFrame = env->GetMethodID(clazz, "onFrame", "(Ljava/nio/ByteBuffer;)V");
+                    }
                     env->DeleteLocalRef(clazz);
                 } else {
                     LOGW("failed to get object class");
@@ -477,6 +484,10 @@ void UVCPreview::uvc_preview_frame_callback(uvc_frame_t *frame, void *vptr_args)
         || (frame->frame_format != UVC_FRAME_FORMAT_MJPEG && frame->data_bytes < frame->width * frame->height * 2))
         return;
     if (LIKELY(preview->isRunning())) {
+        // Same clock as Android elapsedRealtimeNanos (AOSP SystemClock.cpp), before copy/queues/decode.
+        // This is a host receipt timestamp, never a hardware exposure timestamp.
+        timespec received = {};
+        if (clock_gettime(CLOCK_BOOTTIME, &received)) received = {};
         uvc_frame_t *copy = preview->get_frame(frame->data_bytes);
         if (UNLIKELY(!copy)) {
 #if LOCAL_DEBUG
@@ -489,6 +500,7 @@ void UVCPreview::uvc_preview_frame_callback(uvc_frame_t *frame, void *vptr_args)
             preview->recycle_frame(copy);
             return;
         }
+        copy->capture_time_finished = received;
         if (!preview->mHasPreview.load(std::memory_order_acquire)
             && preview->mCaptureThreadReady.load(std::memory_order_acquire)) {
             // Headless: the preview worker only owns stream lifetime. Do not wake
@@ -619,6 +631,7 @@ void UVCPreview::do_preview(uvc_stream_ctrl_t *ctrl) {
         if (!input) continue;
         pthread_mutex_lock(&capture_mutex);
         const bool needsCapture = mFrameCallbackObj || mCaptureWindow;
+        const bool captureGray = needsCapture && mPixelFormat == PIXEL_FORMAT_GRAY8;
         const bool captureYuyv = needsCapture && !mCaptureWindow && input->frame_format == UVC_FRAME_FORMAT_YUYV
                                  && (mPixelFormat == PIXEL_FORMAT_RAW || mPixelFormat == PIXEL_FORMAT_YUV
                                      || mPixelFormat == PIXEL_FORMAT_NV12 || mPixelFormat == PIXEL_FORMAT_NV21
@@ -639,10 +652,21 @@ void UVCPreview::do_preview(uvc_stream_ctrl_t *ctrl) {
             recycle_frame(input);
             continue;
         }
+        if (captureGray) {
+            // One grayscale decode feeds BOTH display and algorithm. Enabling an IR preview must
+            // not switch the algorithm to RGBX->gray or decode the JPEG a second time.
+            uvc_frame_t *gray = decodeCaptureFrame(input, true, previewDecoder);
+            if (gray) {
+                draw_preview_one(gray, &mPreviewWindow);
+                if (!addCaptureFrame(gray)) recycle_frame(gray);
+            }
+            continue;
+        }
         uvc_frame_t *rgb = get_frame(previewBytes);
         result = rgb ? (input->frame_format == UVC_FRAME_FORMAT_MJPEG
                         ? previewDecoder.decode(input, rgb) : uvc_yuyv2rgbx(input, rgb)) : UVC_ERROR_NO_MEM;
         if (!result) {
+            copyFrameTiming(input, rgb);
             draw_preview_one(rgb, &mPreviewWindow);
             if (captureYuyv) {
                 recycle_frame(rgb);
@@ -704,7 +728,9 @@ int copyToSurface(uvc_frame_t *frame, ANativeWindow **window) {
                 ANativeWindow_unlockAndPost(*window);
                 return -1;
             }
-            if (frame->width == buffer.stride && frame->step == frame->width * PREVIEW_PIXEL_BYTES) {
+            if (frame->frame_format == UVC_FRAME_FORMAT_GRAY8) {
+                result = gray8ToPreview(frame, static_cast<uint8_t *>(buffer.bits), buffer.stride * PREVIEW_PIXEL_BYTES);
+            } else if (frame->width == buffer.stride && frame->step == frame->width * PREVIEW_PIXEL_BYTES) {
                 memcpy(buffer.bits, frame->data,
                        buffer.width * buffer.height * PREVIEW_PIXEL_BYTES);
             } else {
@@ -908,7 +934,7 @@ void UVCPreview::do_capture_surface(JNIEnv *env) {
     char *local_picture_path;
 
     for (; isRunning() && isCapturing();) {
-        frame = decodeCaptureFrame(waitCaptureFrame(), false);
+        frame = decodeCaptureFrame(waitCaptureFrame(), mPixelFormat == PIXEL_FORMAT_GRAY8, captureDecoder);
         if (LIKELY(frame)) {
             // frame data is always YUYV format.
             if LIKELY(isCapturing()) {
@@ -932,19 +958,24 @@ void UVCPreview::do_capture_surface(JNIEnv *env) {
 
 // Decode only when the callback consumer is ready; preserve existing RGBX->NV21
 // color conversion. GRAY8 explicitly requests full-range JPEG luma instead.
-uvc_frame_t *UVCPreview::decodeCaptureFrame(uvc_frame_t *frame, bool gray) {
-    if (!frame || frame->frame_format == UVC_FRAME_FORMAT_RGBX || frame->frame_format == UVC_FRAME_FORMAT_GRAY8)
-        return frame;
+uvc_frame_t *UVCPreview::decodeCaptureFrame(uvc_frame_t *frame, bool gray, MjpegDecoder &decoder) {
+    if (!frame) return NULL;
+    if (frame->frame_format == UVC_FRAME_FORMAT_RGBX || frame->frame_format == UVC_FRAME_FORMAT_GRAY8) {
+        // Drop an obsolete converted frame at a callback-format/Surface transition.
+        if ((frame->frame_format == UVC_FRAME_FORMAT_GRAY8) == gray) return frame;
+        recycle_frame(frame); return NULL;
+    }
     uvc_frame_t *decoded = get_frame(static_cast<size_t>(frameWidth) * frameHeight * (gray ? 1 : 4));
     int result = UVC_ERROR_NO_MEM;
     if (decoded) {
-        if (frame->frame_format == UVC_FRAME_FORMAT_MJPEG) result = captureDecoder.decode(frame, decoded, gray);
+        if (frame->frame_format == UVC_FRAME_FORMAT_MJPEG) result = decoder.decode(frame, decoded, gray);
         else if (gray) {
             result = libyuv::YUY2ToY(static_cast<uint8_t *>(frame->data), frame->step,
                                      static_cast<uint8_t *>(decoded->data), frameWidth, frameWidth, frameHeight);
             decoded->width = frameWidth; decoded->height = frameHeight;
             decoded->step = frameWidth; decoded->frame_format = UVC_FRAME_FORMAT_GRAY8;
         } else result = uvc_yuyv2rgbx(frame, decoded);
+        if (!result) copyFrameTiming(frame, decoded);
     }
     recycle_frame(frame);
     if (result) { if (decoded) recycle_frame(decoded); return NULL; }
@@ -965,7 +996,7 @@ void UVCPreview::do_capture_callback(JNIEnv *env, uvc_frame_t *frame) {
         recycle_frame(frame);
         if (result) { if (converted) recycle_frame(converted); return; }
         frame = converted;
-    } else if (!directYuyv) frame = decodeCaptureFrame(frame, mPixelFormat == PIXEL_FORMAT_GRAY8);
+    } else if (!directYuyv) frame = decodeCaptureFrame(frame, mPixelFormat == PIXEL_FORMAT_GRAY8, captureDecoder);
     if (!frame) return;
     const bool directGray = frame->frame_format == UVC_FRAME_FORMAT_GRAY8 && mPixelFormat == PIXEL_FORMAT_GRAY8;
     if (mFrameCallbackFunc && !directYuyv && !directGray && !sourceNv) {
@@ -977,7 +1008,10 @@ void UVCPreview::do_capture_callback(JNIEnv *env, uvc_frame_t *frame) {
     }
     jobject buf = env->NewDirectByteBuffer(frame->data, callbackPixelBytes);
     if (buf) {
-        env->CallVoidMethod(mFrameCallbackObj, iframecallback_fields.onFrame, buf);
+        if (iframecallback_fields.withTiming)
+            env->CallVoidMethod(mFrameCallbackObj, iframecallback_fields.onFrame, buf,
+                               static_cast<jlong>(hostReceiptNanos(frame)), static_cast<jlong>(frame->sequence));
+        else env->CallVoidMethod(mFrameCallbackObj, iframecallback_fields.onFrame, buf);
         env->DeleteLocalRef(buf);
     }
     if (env->ExceptionCheck()) env->ExceptionClear();

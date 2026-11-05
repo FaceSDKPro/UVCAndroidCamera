@@ -5,13 +5,21 @@ import java.nio.ByteBuffer;
 
 /**
  * Borrowed decoded pixels: valid only inside FrameListener.onFrame. No pixel copy is made.
- * arrivalTimeNanos uses the host monotonic clock; it is not a sensor timestamp or hardware sync.
+ * arrivalTimeNanos uses Android elapsedRealtimeNanos, before queueing/decoding when native
+ * receipt metadata is available. Neither receipt nor callback time is sensor exposure time.
  */
 public final class CameraFrame {
+    public enum LumaRange { FULL, VIDEO, UNSPECIFIED }
     public final int width, height, pixelFormat;
     /** Capture geometry and clockwise rotation already applied to pixels. Never rotate them again by this amount. */
     public final int sourceWidth, sourceHeight, appliedRotationDegrees;
     public final long sequence, arrivalTimeNanos;
+    /** Zero / -1 means an older native callback did not supply this metadata. */
+    public final long receivedTimeNanos, nativeSequence;
+    /** Java delivery time, after decode/conversion; useful for measuring input latency. */
+    public final long callbackTimeNanos;
+    /** No automatic contrast stretching or range normalization is applied to source Y. */
+    public final LumaRange lumaRange;
     private final ByteBuffer pixels;
 
     CameraFrame(ByteBuffer pixels, StreamConfig config, long sequence, long arrivalTimeNanos) {
@@ -19,11 +27,30 @@ public final class CameraFrame {
     }
 
     CameraFrame(ByteBuffer pixels, StreamConfig config, int rotationDegrees, long sequence, long arrivalTimeNanos) {
+        this(pixels, config, rotationDegrees, sequence, arrivalTimeNanos, 0, -1);
+    }
+
+    CameraFrame(ByteBuffer pixels, StreamConfig config, int rotationDegrees, long sequence,
+            long callbackTimeNanos, long receivedTimeNanos, long nativeSequence) {
         this.pixels = pixels; // JNI creates a separate borrowed view for each callback.
         this.sourceWidth = config.width; this.sourceHeight = config.height; this.appliedRotationDegrees = rotationDegrees;
         this.width = FrameTransforms.outputWidth(config.width, config.height, rotationDegrees);
         this.height = FrameTransforms.outputHeight(config.width, config.height, rotationDegrees); this.pixelFormat = config.pixelFormat;
-        this.sequence = sequence; this.arrivalTimeNanos = arrivalTimeNanos;
+        this.sequence = sequence;
+        this.callbackTimeNanos = callbackTimeNanos;
+        this.receivedTimeNanos = receivedTimeNanos;
+        this.nativeSequence = nativeSequence;
+        this.arrivalTimeNanos = receivedTimeNanos > 0 ? receivedTimeNanos : callbackTimeNanos;
+        this.lumaRange = config.frameType != UVCCamera.UVC_VS_FRAME_MJPEG ? LumaRange.UNSPECIFIED
+                : config.pixelFormat == UVCCamera.PIXEL_FORMAT_GRAY8 ? LumaRange.FULL
+                : config.pixelFormat == UVCCamera.PIXEL_FORMAT_NV21 || config.pixelFormat == UVCCamera.PIXEL_FORMAT_NV12
+                ? LumaRange.VIDEO : LumaRange.UNSPECIFIED;
+    }
+
+    /** Includes native queueing/decode/conversion; -1 when native receipt time is unavailable. */
+    public long inputLatencyNanos() {
+        return receivedTimeNanos > 0 && callbackTimeNanos >= receivedTimeNanos
+                ? callbackTimeNanos - receivedTimeNanos : -1;
     }
 
     /** Read-only direct view. Its validity ends when the callback returns. */

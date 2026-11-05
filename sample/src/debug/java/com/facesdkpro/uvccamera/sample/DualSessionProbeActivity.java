@@ -19,6 +19,8 @@ import com.facesdkpro.uvccamera.FramePair;
 import com.facesdkpro.uvccamera.FrameTransforms;
 import com.facesdkpro.uvccamera.PreviewTransform;
 import com.facesdkpro.uvccamera.StreamConfig;
+import com.facesdkpro.uvccamera.CameraFailure;
+import com.facesdkpro.uvccamera.PairingDiagnostics;
 import com.serenegiant.usb.UVCCamera;
 import java.io.File;
 import java.util.List;
@@ -33,6 +35,7 @@ public final class DualSessionProbeActivity extends Activity {
     private final JSONArray checks = new JSONArray();
     private final AtomicInteger pairs = new AtomicInteger(), bad = new AtomicInteger(), updates = new AtomicInteger();
     private final AtomicLong first = new AtomicLong(), last = new AtomicLong(), consumerEnd = new AtomicLong();
+    private final AtomicLong latencyTotal = new AtomicLong(), latencyMax = new AtomicLong();
     private UsbDevice rgb, ir;
     private DualCameraSession session;
     private Surface preview;
@@ -40,7 +43,9 @@ public final class DualSessionProbeActivity extends Activity {
     private SurfaceTexture retiredTexture;
     private TextView text;
     private int cycle, errors, controls;
-    private boolean finished, ready, closeReturnedBeforeConsumer;
+    private boolean finished, ready, closeReturnedBeforeConsumer, basic;
+    private int stateNotifications;
+    private PairingDiagnostics.State lastState;
     private long seenSessionId;
 
     @Override public void onCreate(Bundle state) {
@@ -58,13 +63,16 @@ public final class DualSessionProbeActivity extends Activity {
             public void onSurfaceTextureUpdated(SurfaceTexture texture) { updates.incrementAndGet(); }
         }); setContentView(root);
         rotationFixture();
+        basic = getIntent().getBooleanExtra("basic", false);
         List<UsbDevice> devices = DualCameraSession.devices(this);
+        int rgbMatches = 0, irMatches = 0;
         for (UsbDevice device : devices) {
-            if (device.getVendorId() == 0x1187 && device.getProductId() == 0x3a49) rgb = device;
-            if (device.getVendorId() == 0x1871 && device.getProductId() == 0x3b49) ir = device;
+            if (device.getVendorId() == 0x1187 && device.getProductId() == 0x3a49
+                    || device.getVendorId() == 0x1871 && device.getProductId() == 0x1a49) { rgb = device; rgbMatches++; }
+            if (device.getVendorId() == 0x1871 && (device.getProductId() == 0x3b49 || device.getProductId() == 0x1b49)) { ir = device; irMatches++; }
         }
-        check("explicit_rgb_ir_devices", rgb != null && ir != null, "uvc_devices=" + devices.size());
-        if (rgb == null || ir == null) { finishReport(); return; }
+        check("explicit_rgb_ir_devices", rgbMatches == 1 && irMatches == 1, "uvc_devices=" + devices.size());
+        if (rgbMatches != 1 || irMatches != 1) { finishReport(); return; }
         try {
             new DualCameraSession(this, rgb, rgb, DualCameraConfig.defaults(), null, null,
                     new DualCameraSession.Listener() {}, pair -> {});
@@ -78,9 +86,10 @@ public final class DualSessionProbeActivity extends Activity {
         if (finished) return;
         if (cycle == 1 && preview == null) { main.postDelayed(this::openCycle, 100); return; }
         pairs.set(0); bad.set(0); first.set(0); last.set(0); consumerEnd.set(0); updates.set(0);
+        latencyTotal.set(0); latencyMax.set(0); stateNotifications = 0; lastState = null;
         errors = controls = 0; ready = closeReturnedBeforeConsumer = false;
         DualCameraConfig config = DualCameraConfig.defaults();
-        if (cycle == 5) config = new DualCameraConfig(new StreamConfig(640, 480, 120,
+        if (cycle == 5) config = new DualCameraConfig(new StreamConfig(2, 2, 30,
                 UVCCamera.UVC_VS_FRAME_MJPEG, UVCCamera.PIXEL_FORMAT_NV21, 0), config.ir, 50, 150, 15);
         if (cycle == 8) config = config.withRotations(90,270);
         if (cycle == 9) config = new DualCameraConfig(
@@ -98,8 +107,7 @@ public final class DualSessionProbeActivity extends Activity {
         boolean showPreview = mode == 1 || mode == 8 || mode == 10;
         if (showPreview) previewView.setTransform(PreviewTransform.fitCenter(previewView.getWidth(),previewView.getHeight(),
                 config.rgb.width,config.rgb.height,config.rgbRotationDegrees));
-        session = new DualCameraSession(this, rgb, ir, config, showPreview ? preview : null, null,
-                new DualCameraSession.Listener() {
+        DualCameraSession.Listener listener = new DualCameraSession.Listener() {
                     @Override public void onReady(DualCameraSession source) {
                         ready = true;
                         check("state_thread_" + mode, Looper.myLooper() == Looper.getMainLooper(), "ready on main");
@@ -118,13 +126,21 @@ public final class DualSessionProbeActivity extends Activity {
                         errors++;
                         check("error_policy_" + mode, mode == 4 || mode == 5,
                                 message + (cause == null ? "" : " · " + cause.getClass().getSimpleName()));
-                        if (mode == 5) check("start_failure_reason_preserved", cause != null && message.equals("Camera start failed"),
-                                message + ", cause=" + (cause != null));
+                        if (mode == 5) check("start_failure_reason_preserved", cause != null && source.failure() != null
+                                        && source.failure().code == CameraFailure.Code.OPEN_FAILED
+                                        && source.failure().nativeStatus != null && source.failure().nativeStatus != 0,
+                                "structured native status=" + (source.failure() == null ? "none" : source.failure().nativeStatus));
+                    }
+                    @Override public void onPairingStateChanged(DualCameraSession source, PairingDiagnostics diagnostics) {
+                        if (Looper.myLooper() != Looper.getMainLooper() || lastState == diagnostics.state) bad.incrementAndGet();
+                        lastState = diagnostics.state; stateNotifications++;
                     }
                     @Override public void onClosed(DualCameraSession source) {
                         check("closed_thread_" + mode, Looper.myLooper() == Looper.getMainLooper() && source.isClosed(), "closed on main");
                         check("error_count_" + mode, errors == ((mode == 4 || mode == 5) ? 1 : 0), "errors=" + errors);
                         check("pixel_thread_pair_contract_" + mode, bad.get() == 0, "bad=" + bad.get() + ", pairs=" + pairs.get());
+                        check("state_notifications_bounded_" + mode, stateNotifications > 0 && stateNotifications < 10,
+                                "state_changes=" + stateNotifications);
                         if (mode == 3) check("close_drains_consumer", closeReturnedBeforeConsumer && consumerEnd.get() > 0,
                                 "close_returned_before_consumer=" + closeReturnedBeforeConsumer);
                         if (mode == 6) check("immediate_close_no_delivery", pairs.get() == 0 && !ready, "pairs=" + pairs.get());
@@ -132,8 +148,13 @@ public final class DualSessionProbeActivity extends Activity {
                         if (retiredTexture != null) { if (preview != null) preview.release(); preview = null; retiredTexture.release(); retiredTexture = null; }
                         main.postDelayed(() -> afterClose(mode), 400);
                     }
-                }, pair -> consume(pair, mode, selected));
+                };
+        DualCameraSession.FramePairListener consumer = pair -> consume(pair, mode, selected);
+        session = mode == 6 || mode == 7
+                ? DualCameraSession.create(this, rgb, ir, config, showPreview ? preview : null, null, listener, consumer)
+                : new DualCameraSession(this, rgb, ir, config, showPreview ? preview : null, null, listener, consumer);
         if (mode == 6) session.close();
+        else if (mode == 7) session.start();
     }
 
     private void consume(FramePair pair, int mode, DualCameraConfig config) {
@@ -148,9 +169,14 @@ public final class DualSessionProbeActivity extends Activity {
                 || pair.ir.width != FrameTransforms.outputWidth(config.ir.width,config.ir.height,config.irRotationDegrees)
                 || pair.ir.height != FrameTransforms.outputHeight(config.ir.width,config.ir.height,config.irRotationDegrees)
                 || pair.rgb.appliedRotationDegrees != config.rgbRotationDegrees || pair.ir.appliedRotationDegrees != config.irRotationDegrees
+                || pair.rgb.receivedTimeNanos <= 0 || pair.ir.receivedTimeNanos <= 0
+                || pair.rgb.nativeSequence < 0 || pair.ir.nativeSequence < 0
+                || pair.rgb.callbackTimeNanos < pair.rgb.receivedTimeNanos || pair.ir.callbackTimeNanos < pair.ir.receivedTimeNanos
                 || !pair.rgbPlanes().u().isDirect() || !pair.ir.pixels().isReadOnly()
                 || pair.arrivalSkewNanos > 50_000_000L
                 || now - pair.rgb.arrivalTimeNanos > 160_000_000L || now - pair.ir.arrivalTimeNanos > 160_000_000L) bad.incrementAndGet();
+        long rgbLatency = pair.rgb.inputLatencyNanos(), irLatency = pair.ir.inputLatencyNanos();
+        latencyTotal.addAndGet(rgbLatency + irLatency); latencyMax.accumulateAndGet(Math.max(rgbLatency, irLatency), Math::max);
         byte before = pair.rgb.pixels().get(100);
         try {
             if (mode == 2) Thread.sleep(120);
@@ -169,7 +195,9 @@ public final class DualSessionProbeActivity extends Activity {
         if (session != source || source.isClosed()) return;
         double fps = pairs.get() > 1 ? (pairs.get() - 1) * 1e9 / (last.get() - first.get()) : 0;
         check("pairs_rate_" + mode, pairs.get() > 8 && fps <= source.config.maxPairsPerSecond+.5 && fps > 3,
-                "pairs=" + pairs.get() + ", fps=" + fps + ", requested_limit=" + source.config.maxPairsPerSecond);
+                "pairs=" + pairs.get() + ", fps=" + fps + ", requested_limit=" + source.config.maxPairsPerSecond
+                        + ", input_latency_ms_mean=" + latencyTotal.get()/Math.max(1,pairs.get()*2)/1e6
+                        + ", input_latency_ms_max=" + latencyMax.get()/1e6);
         check("two_streams_" + mode, source.receivedFrames(DualCameraSession.Role.RGB) > source.config.rgb.fps
                 && source.receivedFrames(DualCameraSession.Role.IR) > source.config.ir.fps,
                 "RGB="+source.config.rgb.width+"x"+source.config.rgb.height+"@"+source.config.rgb.fps+"/"+source.config.rgbRotationDegrees
@@ -187,7 +215,7 @@ public final class DualSessionProbeActivity extends Activity {
             if (thread.getName().equals("UVC-pairs") || thread.getName().equals("UVC-commands")) workers++;
         check("resources_drained_" + mode, usb == 0 && workers == 0, "usb_fds=" + usb + ", java_workers=" + workers);
         cycle++;
-        if (cycle == 13) finishReport(); else openCycle();
+        if (cycle == (basic ? 8 : 13)) finishReport(); else openCycle();
     }
 
     private void rotationFixture() {

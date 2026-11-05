@@ -61,12 +61,15 @@ dependencies { implementation 'com.facesdkpro:uvc-android-camera:0.3.0' }
 同一 USB 设备的多个 VideoStreaming 接口暂不支持。
 
 ```java
-DualCameraSession session = new DualCameraSession(
+DualCameraSession session = DualCameraSession.create(
     context, selectedRgbDevice, selectedIrDevice,
     DualCameraConfig.defaults(), rgbSurface, null, // IR 默认无预览
     new DualCameraSession.Listener() {
         @Override public void onReady(DualCameraSession source) {
             // 主线程：两路流已打开；实际帧对交付仍受新鲜度及时间差门禁约束。
+            source.withControls(DualCameraSession.Role.RGB, control -> {
+                if (control.isBrightnessEnable()) control.setBrightnessPercent(50);
+            });
         }
         @Override public void onError(DualCameraSession source, String message, Throwable error) {
             // 主线程：本组采集已停止，作废旧业务结果，待 onClosed 后重新创建会话。
@@ -82,15 +85,13 @@ DualCameraSession session = new DualCameraSession(
         // 对接方同步处理完再返回；不要把 pair 或 Buffer 保存到异步队列。
     });
 
-session.withControls(DualCameraSession.Role.RGB, control -> {
-    if (control.isBrightnessEnable()) control.setBrightnessPercent(50);
-});
+session.start(); // 先保存句柄，再异步启动；部分启动失败也能收到关闭完成通知。
 
 // 页面隐藏、退出或准备改变设备/模式时调用；不阻塞调用线程。
 session.close();
 ```
 
-一路拔出、权限失败、打开失败、消费者抛出异常，或已打开的任一路持续 5 秒不出帧，都会结束整个会话。
+一路拔出、权限失败、打开失败、消费者抛出异常，已打开的任一路持续 5 秒不出帧，或持续 5 秒没有有效帧对，都会结束整个会话。
 重试或重连必须等待 `onClosed`，重新枚举并创建新会话；不会静默换设备或退回单目。
 `onReady` 不表示两路在同一时刻曝光，也不表示有一张可用于活体的脸。
 
@@ -149,7 +150,8 @@ Demo 提供常见候选参数；候选出现在界面上不表示当前相机一
 
 固定复用每路 2 个 DirectByteBuffer（一帧在处理、一帧待处理），640×480 合计约 1.46 MiB、双路 1080p 约 9.89 MiB，
 不包含底层采集/解码/显示缓存。USB 回调把像素复制到池中，保留每路最新一帧；算法消费者串行执行，
-不会积压无限任务。慢消费者返回后再选最新帧，过时、乱序或时间差过大的样本丢弃。关闭时清掉池引用，在途消费者自然结束。
+不会积压无限任务。慢消费者返回后再选最新帧，过时、乱序或时间差过大的样本丢弃。拷贝/旋转在两路共享锁外按角色串行执行，过期帧在拷贝前丢弃。
+关闭时清掉池引用，在途消费者及拷贝完成后才通知关闭，不阻塞主线程。
 交付频率限制不等于降低摄像头采集 FPS，不会自动关闭 IR 补光。
 
 `FramePair` 与其 `CameraFrame`、像素视图只在 `onFramePair` 调用期间有效。需要跨回调持有数据时，
@@ -157,7 +159,10 @@ Demo 提供常见候选参数；候选出现在界面上不表示当前相机一
 `Nv21Planes` 只切视图，不做像素复制；这个局部行为不意味着整条链路零拷贝。
 
 `sessionId` 标识本进程中的一次会话，`pairId` 是会话内递增的配对序号，均不是人脸跟踪 ID。
-`arrivalTimeNanos` 来自主机单调时钟，记录解码后回调到达时间；`arrivalSkewNanos` 仅描述这两个回调的间隔。
+`arrivalTimeNanos` 优先使用原生队列/解码前的主机收帧时间，与 Android elapsedRealtimeNanos 同域。
+`callbackTimeNanos` 记录解码后的 Java 回调时间；`receivedTimeNanos=0`、`nativeSequence=-1` 明确表示旧 native 未提供元数据，
+此时才回退到回调时间。`inputLatencyNanos()` 只测收帧到 Java 的耗时，不包含配对等待或算法耗时。
+`nativeSequence` 为可回绕的无符号 32 位采集序号，原 `sequence` 仍是 Java 回调递增计数；`arrivalSkewNanos` 比较主机收帧时间。
 它不等于传感器曝光时间，不能证明硬件同步；分离 USB 摄像头的设备时钟或帧序号不能直接互相比较。
 消费者内部的长时间处理仍会增加结果延迟，宿主应再次检查结果所属会话和有效期。
 
@@ -168,14 +173,31 @@ Demo 提供常见候选参数；候选出现在界面上不表示当前相机一
 1. RGB：用 `Nv21Planes` 的 Y/U/V DirectByteBuffer、行步长与 UV pixelStride 构造 `Yuv420Frame`。
    不需要转 Bitmap/RGB/I420；必须显式声明实际颜色范围和矩阵。
 2. IR：从真实 IR 流取得 GRAY8，提供已归正、未镜像的图像，以及该 IR 图像中的有效人脸框，
-   再调用红外评估接口。当前算法数组入口需显式复制，本摄像头 SDK 不改变其所有权语义。
+   再调用红外评估接口。已发布的独立数组入口需显式复制，私有双目入口可同步借用直接缓冲。
 3. 校验同人对应、标定 RGB→IR 几何关系、处理多人和异步结果关联；不能直接复用 RGB 框坐标。
    最终业务通过必须绑定同一次有效采样，IR 缺失、超时或旧会话结果不可沿用为通过。
 
-现有 HelloFace 0.8.6 的搜索活体开关是 RGB 活体；独立 IR 评估没有自动加入搜索终态。
-此 Demo 不伪造统一双目算法接口或最终通过结果。后续接入时还需补充并验证该关联契约。
+已发布 HelloFace 0.8.6 的搜索活体开关是 RGB 活体；独立 IR 评估没有自动加入该搜索终态。
+HiFace 私有开发 SDK 已提供 `RgbIrFrame` 和 `InfraredSearchConfig`，将 IR 评估纳入双目搜索终态，
+见 [HiFace 接入](HIFACE_INTEGRATION.zh-CN.md)。它要求配套开发 SDK，不能直接使用已发布的 0.8.6 二进制。
+相机标定、人脸对应和真人/攻击有效性仍需真机验证；本仓库的独立摄像头 Demo 不执行算法通过判断。
 
 低层原始像素不自动旋转；双目回调按显式旋转配置交付，不自动镜像或做人脸检测。显示缩放与算法坐标分开处理。
 MJPEG 直接 GRAY8 使用 JPEG 灰度范围；YUYV→GRAY8 保留传感器原始 Y，二者阈值不能假定通用。
 MJPEG→NV21 使用现有 RGBX 转换路径；YUYV→NV21 保留源 Y，颜色元数据应根据实际路径与设备确认。
 NDK、原生体积预算和 16 KB ELF/APK 对齐保持原门禁；静态对齐通过不能替代 16 KB 页设备运行。
+
+## 配对健康与失败完成通知
+
+`onPairingStateChanged(session, diagnostics)` 每秒检查两次，仅在状态变化时通知：等待 RGB/IR/两路、已配对、
+时间差过大、帧过期、消费者繁忙、已关闭。丢失帧对时应清除旧业务结果；某一路新帧或历史 IR 通过不能替代
+当前有效帧对。两路持续有帧但 5 秒没有有效帧对也会关闭会话，不自动放宽配对门槛。
+
+`onFailure(session, role, failure)` 保留结构化错误码、设备、原因及可选原生打开状态码。
+整组错误的 role 为 null；默认只转发一次原 `onError`，接入方选择覆盖其中一个。
+原自动启动构造函数继续可用；`create()` 在 `start()` 前不分配线程、USB 或像素池。
+先创建后关闭、部分启动失败也只通知一次 `onClosed`，之后才能释放 Surface。
+
+订阅 GRAY8 时，开启预览直接把算法同源灰度展开到 Surface RGBA，不再额外解码 JPEG 或经过 RGBX 中间帧。
+MJPEG GRAY8 的 `lumaRange=FULL`，MJPEG NV21/NV12 为 `VIDEO`；源 YUYV 亮度范围为 `UNSPECIFIED`，由设备配置明确。
+预览开关不会对算法像素做归一化或对比度拉伸，原 RGB NV21 转换保持原路径。

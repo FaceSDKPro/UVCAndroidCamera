@@ -12,44 +12,71 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * One explicitly selected RGB/IR pair. Owns permissions, both cameras and a bounded pair worker.
- * Any camera failure/close ends the entire session. Create a new session to retry or reconnect.
- * State callbacks are main-thread; frame-pair callbacks are serial on UVC-pairs. No face algorithm.
+ * Owns one explicitly selected RGB/IR pair, serialized USB permissions and bounded pair delivery.
+ * State callbacks run on main; pixels are borrowed on UVC-pairs. Never joins a frame callback.
+ * A failure ends the WHOLE session; create a fresh session to retry/reconnect.
  */
 public final class DualCameraSession implements AutoCloseable {
     public enum Role { RGB, IR }
     public interface Listener {
-        /** Both streams opened; pair delivery still depends on fresh frames within the skew limit. */
+        /** Streams opened, not a promise of fresh pairs or stabilized exposure. */
         default void onReady(DualCameraSession session) {}
         default void onError(DualCameraSession session, String message, Throwable cause) {}
-        /** Both USB/native resources and an in-flight pair consumer have drained. Safe to release Surfaces. */
+        /** role is null for whole-session failures; default preserves the original onError callback. */
+        default void onFailure(DualCameraSession session, Role role, CameraFailure failure) {
+            onError(session, failure.message, failure.cause);
+        }
+        /** Sampled at 2 Hz, delivered ONLY when state changes. No per-frame status allocation/notification. */
+        default void onPairingStateChanged(DualCameraSession session, PairingDiagnostics diagnostics) {}
+        /** USB/native, pair consumer AND out-of-lock copies have drained. Safe to release Surfaces. */
         default void onClosed(DualCameraSession session) {}
     }
     public interface FramePairListener { void onFramePair(FramePair pair); }
     private static final AtomicLong NEXT_ID = new AtomicLong();
+    private static final long STALL_NANOS = 5_000_000_000L;
     public final long sessionId = NEXT_ID.incrementAndGet();
     public final DualCameraConfig config;
+    private final Context context;
+    private final UsbDevice rgbDevice, irDevice;
+    private final Surface rgbPreview, irPreview;
+    private final FramePairListener frames;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final Listener listener;
+    private final Object lifecycle = new Object();
     private final AtomicBoolean closed = new AtomicBoolean();
     private final AtomicLong rgbArrival = new AtomicLong(), irArrival = new AtomicLong();
-    private final UvcCameraManager manager;
-    private final FramePairDispatcher dispatcher;
-    private final UvcCameraManager.Camera rgb, ir;
-    private boolean rgbOpened, irOpened, usbDrained, pairsDrained, closedDelivered;
+    private volatile UvcCameraManager manager;
+    private volatile FramePairDispatcher dispatcher;
+    private volatile UvcCameraManager.Camera rgb, ir;
+    // Main thread / start(), except the atomic admission stop.
+    private boolean started, rgbOpened, irOpened, usbDrained = true, pairsDrained = true, closedDelivered;
     private long readyAt;
+    private volatile CameraFailure lastFailure;
+    private PairingDiagnostics.State publishedState;
+
     private final Runnable watchdog = new Runnable() {
         @Override public void run() {
             if (closed.get()) return;
             long now = SystemClock.elapsedRealtimeNanos();
-            if (now - Math.max(readyAt, rgbArrival.get()) > 5_000_000_000L
-                    || now - Math.max(readyAt, irArrival.get()) > 5_000_000_000L) {
-                fail("A camera stopped producing frames for 5 seconds", null);
-            } else main.postDelayed(this, 1000);
+            PairingDiagnostics diagnostics = pairingDiagnostics();
+            if (now - Math.max(readyAt, rgbArrival.get()) > STALL_NANOS) {
+                fail(new CameraFailure(CameraFailure.Code.STREAM_TIMEOUT, rgbDevice,
+                        "RGB camera stopped producing usable frames for 5 seconds", null, null));
+            } else if (now - Math.max(readyAt, irArrival.get()) > STALL_NANOS) {
+                fail(new CameraFailure(CameraFailure.Code.STREAM_TIMEOUT, irDevice,
+                        "IR camera stopped producing usable frames for 5 seconds", null, null));
+            } else if (now - Math.max(readyAt, diagnostics.lastPairTimeNanos) > STALL_NANOS) {
+                fail(new CameraFailure(CameraFailure.Code.PAIR_TIMEOUT, null,
+                        diagnostics.consumerActive ? "Frame-pair consumer stalled for 5 seconds"
+                                : "Both streams are active but no usable pair was delivered for 5 seconds", null, null));
+            } else {
+                publishState(diagnostics);
+                main.postDelayed(this, 500);
+            }
         }
     };
 
-    /** Enumerate without starting a monitor. Bind roles by VID/PID or explicit user selection. */
+    /** Enumerates without allocating workers or requesting USB permission. */
     public static List<UsbDevice> devices(Context context) {
         if (context == null) throw new NullPointerException("context");
         UsbManager usb = (UsbManager) context.getApplicationContext().getSystemService(Context.USB_SERVICE);
@@ -57,89 +84,167 @@ public final class DualCameraSession implements AutoCloseable {
     }
 
     /**
-     * Call on the main thread after CAMERA permission. Devices must be distinct, independently
-     * enumerated USB cameras. Surfaces may be null; the caller owns them until onClosed.
+     * Backward-compatible auto-start. Pure argument errors throw before owning resources;
+     * all subsequent startup failures report onFailure + onClosed asynchronously.
      */
     public DualCameraSession(Context context, UsbDevice rgbDevice, UsbDevice irDevice,
             DualCameraConfig config, Surface rgbPreview, Surface irPreview,
             Listener listener, FramePairListener frames) {
-        if (Looper.myLooper() != Looper.getMainLooper()) throw new IllegalStateException("Create on the main thread");
-        if (context == null || config == null || listener == null || frames == null) throw new NullPointerException("session argument");
+        this(context, rgbDevice, irDevice, config, rgbPreview, irPreview, listener, frames, true);
+    }
+
+    /** Two-phase startup: assign the handle first, then call start(). No USB/thread/pixel-pool allocation here. */
+    public static DualCameraSession create(Context context, UsbDevice rgbDevice, UsbDevice irDevice,
+            DualCameraConfig config, Surface rgbPreview, Surface irPreview,
+            Listener listener, FramePairListener frames) {
+        return new DualCameraSession(context, rgbDevice, irDevice, config, rgbPreview, irPreview, listener, frames, false);
+    }
+
+    private DualCameraSession(Context context, UsbDevice rgbDevice, UsbDevice irDevice,
+            DualCameraConfig config, Surface rgbPreview, Surface irPreview,
+            Listener listener, FramePairListener frames, boolean autoStart) {
+        requireMain();
+        if (context == null || config == null || listener == null || frames == null)
+            throw new NullPointerException("session argument");
         if (!UvcCameraManager.isCamera(rgbDevice) || !UvcCameraManager.isCamera(irDevice)
                 || rgbDevice.getDeviceName().equals(irDevice.getDeviceName()))
             throw new IllegalArgumentException("Select two distinct UVC devices for RGB and IR");
         if (rgbPreview != null && !rgbPreview.isValid() || irPreview != null && !irPreview.isValid())
             throw new IllegalArgumentException("Preview Surface is invalid");
-        this.listener = listener;
-        this.config = config;
-        dispatcher = new FramePairDispatcher(sessionId, config, SystemClock::elapsedRealtimeNanos,
-                pair -> { if (!closed.get()) frames.onFramePair(pair); },
-                error -> fail("Frame-pair consumer failed", error),
-                () -> main.post(() -> { pairsDrained = true; completeClose(); }));
-        UvcCameraManager created;
-        try {
-            created = new UvcCameraManager(context, new UvcCameraManager.Listener() {
-                @Override public void onOpened(UvcCameraManager.Camera camera) {
-                    if (closed.get()) return;
-                    if (camera.device.getDeviceName().equals(rgbDevice.getDeviceName())) rgbOpened = true;
-                    if (camera.device.getDeviceName().equals(irDevice.getDeviceName())) irOpened = true;
-                    if (rgbOpened && irOpened && readyAt == 0) {
-                        readyAt = SystemClock.elapsedRealtimeNanos(); main.postDelayed(watchdog, 1000);
-                        listener.onReady(DualCameraSession.this);
+        this.context = context.getApplicationContext();
+        this.rgbDevice = rgbDevice; this.irDevice = irDevice; this.config = config;
+        this.rgbPreview = rgbPreview; this.irPreview = irPreview;
+        this.listener = listener; this.frames = frames;
+        if (autoStart) start();
+    }
+
+    /** Main-thread, idempotent while active. Closed sessions cannot restart or reuse old pair IDs. */
+    public void start() {
+        requireMain();
+        synchronized (lifecycle) {
+            if (closed.get()) throw new IllegalStateException("Session closed");
+            if (started) return;
+            started = true;
+            UsbDevice openingDevice = null;
+            try {
+                dispatcher = new FramePairDispatcher(sessionId, config, SystemClock::elapsedRealtimeNanos,
+                        pair -> { if (!closed.get()) frames.onFramePair(pair); },
+                        error -> fail(new CameraFailure(CameraFailure.Code.FRAME_CONSUMER_FAILED, null,
+                                "Frame-pair consumer failed", error, null)),
+                        () -> main.post(() -> { pairsDrained = true; completeClose(); }));
+                pairsDrained = false;
+                manager = new UvcCameraManager(context, cameraListener());
+                usbDrained = false;
+                openingDevice = rgbDevice;
+                rgb = manager.open(rgbDevice, config.rgb, rgbPreview, (camera, frame) -> {
+                    rgbArrival.set(frame.arrivalTimeNanos); dispatcher.offer(true, frame);
+                });
+                openingDevice = irDevice;
+                ir = manager.open(irDevice, config.ir, irPreview, (camera, frame) -> {
+                    irArrival.set(frame.arrivalTimeNanos); dispatcher.offer(false, frame);
+                });
+            } catch (RuntimeException | LinkageError error) {
+                // Including the first/second open failing: callers already own a handle and always
+                // receive completion. No lost partially-constructed session or premature Surface release.
+                fail(new CameraFailure(CameraFailure.Code.INITIALIZATION, openingDevice,
+                        "Dual-camera startup failed", error, null));
+            } catch (Error fatal) {
+                close();
+                throw fatal;
+            }
+        }
+    }
+
+    private UvcCameraManager.Listener cameraListener() {
+        return new UvcCameraManager.Listener() {
+            @Override public void onOpened(UvcCameraManager.Camera camera) {
+                if (closed.get()) return;
+                if (camera.device.getDeviceName().equals(rgbDevice.getDeviceName())) rgbOpened = true;
+                if (camera.device.getDeviceName().equals(irDevice.getDeviceName())) irOpened = true;
+                if (rgbOpened && irOpened && readyAt == 0) {
+                    readyAt = SystemClock.elapsedRealtimeNanos();
+                    listener.onReady(DualCameraSession.this);
+                    if (!closed.get()) {
+                        publishState(pairingDiagnostics());
+                        main.postDelayed(watchdog, 500);
                     }
                 }
-                @Override public void onClosed(UvcCameraManager.Camera camera) {
-                    fail(camera.failureMessage == null ? "A camera was disconnected or closed" : camera.failureMessage,
-                            camera.failureCause);
-                }
-                @Override public void onDetached(UsbDevice device) {
-                    if (device.getDeviceName().equals(rgbDevice.getDeviceName())
-                            || device.getDeviceName().equals(irDevice.getDeviceName()))
-                        fail("A selected camera was detached", null);
-                }
-                @Override public void onError(UsbDevice device, String message, Throwable cause) { fail(message, cause); }
-                @Override public void onShutdown() { usbDrained = true; completeClose(); }
-            });
-        } catch (RuntimeException | Error error) { dispatcher.close(); throw error; }
-        manager = created;
-        try {
-            rgb = manager.open(rgbDevice, config.rgb, rgbPreview, (camera, frame) -> {
-                rgbArrival.set(frame.arrivalTimeNanos); dispatcher.offer(true, frame);
-            });
-            ir = manager.open(irDevice, config.ir, irPreview, (camera, frame) -> {
-                irArrival.set(frame.arrivalTimeNanos); dispatcher.offer(false, frame);
-            });
-        } catch (RuntimeException | Error error) { close(); throw error; }
+            }
+            @Override public void onClosed(UvcCameraManager.Camera camera) {
+                fail(camera.failure != null ? camera.failure : new CameraFailure(CameraFailure.Code.CAMERA_CLOSED,
+                        camera.device, "A camera was disconnected or closed", null, null));
+            }
+            @Override public void onDetached(UsbDevice device) {
+                if (role(device) != null) fail(new CameraFailure(CameraFailure.Code.DEVICE_DETACHED,
+                        device, "A selected camera was detached", null, null));
+            }
+            @Override public void onFailure(CameraFailure failure) { fail(failure); }
+            @Override public void onShutdown() { usbDrained = true; completeClose(); }
+        };
     }
 
     public boolean isClosed() { return closed.get(); }
-    public long receivedFrames(Role role) { return camera(role).receivedFrames(); }
-    /** One consistent software-pairing snapshot; counters remain available after close. */
-    public PairingDiagnostics pairingDiagnostics() { return dispatcher.diagnostics(); }
-    public void withControls(Role role, UvcCameraManager.ControlAction action) { camera(role).withControls(action); }
+    /** Null for an explicit normal close. Available after onClosed as well. */
+    public CameraFailure failure() { return lastFailure; }
+    public long receivedFrames(Role role) {
+        UvcCameraManager.Camera camera = camera(role);
+        return camera == null ? 0 : camera.receivedFrames();
+    }
+    /** Counters and primitive timing values only; never retains image buffers. */
+    public PairingDiagnostics pairingDiagnostics() {
+        FramePairDispatcher current = dispatcher;
+        return current == null ? PairingDiagnostics.empty(sessionId, closed.get()) : current.diagnostics();
+    }
+    public void withControls(Role role, UvcCameraManager.ControlAction action) {
+        UvcCameraManager.Camera camera = camera(role);
+        if (camera == null) throw new IllegalStateException("Start the session before applying controls");
+        camera.withControls(action);
+    }
     private UvcCameraManager.Camera camera(Role role) {
         if (role == null) throw new NullPointerException("role");
         return role == Role.RGB ? rgb : ir;
     }
+    private Role role(UsbDevice device) {
+        if (device == null) return null;
+        if (device.getDeviceName().equals(rgbDevice.getDeviceName())) return Role.RGB;
+        return device.getDeviceName().equals(irDevice.getDeviceName()) ? Role.IR : null;
+    }
 
-    private void fail(String message, Throwable cause) {
+    private void publishState(PairingDiagnostics diagnostics) {
+        if (publishedState == diagnostics.state) return;
+        publishedState = diagnostics.state;
+        listener.onPairingStateChanged(this, diagnostics);
+    }
+
+    private void fail(CameraFailure failure) {
         if (!closed.compareAndSet(false, true)) return;
-        main.post(() -> listener.onError(this, message, cause));
+        lastFailure = failure;
+        main.post(() -> listener.onFailure(this, role(failure.device), failure));
         stopResources();
     }
 
     private void stopResources() {
-        main.removeCallbacks(watchdog); dispatcher.close(); manager.close();
+        main.removeCallbacks(watchdog);
+        synchronized (lifecycle) {
+            if (dispatcher != null) dispatcher.close();
+            if (manager != null) manager.close();
+        }
+        main.post(this::completeClose);
     }
 
-    /** Immediate admission stop; asynchronous cleanup, including an active consumer. Never joins a callback. */
     @Override public void close() {
         if (closed.compareAndSet(false, true)) stopResources();
     }
 
     private void completeClose() {
-        if (usbDrained && pairsDrained && !closedDelivered) {
-            closedDelivered = true; listener.onClosed(this);
+        if (closed.get() && usbDrained && pairsDrained && !closedDelivered) {
+            closedDelivered = true;
+            publishState(pairingDiagnostics());
+            listener.onClosed(this);
         }
+    }
+
+    private static void requireMain() {
+        if (Looper.myLooper() != Looper.getMainLooper()) throw new IllegalStateException("Create/start on the main thread");
     }
 }

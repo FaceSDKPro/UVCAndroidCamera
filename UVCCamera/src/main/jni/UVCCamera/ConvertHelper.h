@@ -25,6 +25,8 @@ public:
     int decode(uvc_frame_t *in, uvc_frame_t *out, bool gray = false);
 };
 int uvc_rgbx_to_gray8(uvc_frame_t *in, uvc_frame_t *out);
+// Expand the algorithm's GRAY8 directly into a padded RGBA Surface; no JPEG re-decode or scratch frame.
+int gray8ToPreview(const uvc_frame_t *in, uint8_t *destination, int stride);
 int uvc_yuyv_to_nv(uvc_frame_t *in, uvc_frame_t *out, bool nv21);
 
 

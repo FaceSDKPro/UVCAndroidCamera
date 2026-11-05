@@ -12,6 +12,8 @@ import com.serenegiant.usb.USBMonitor;
 import com.serenegiant.usb.UVCCamera;
 import com.serenegiant.usb.UVCControl;
 import com.serenegiant.usb.UVCParam;
+import com.serenegiant.usb.ITimestampedFrameCallback;
+import java.nio.ByteBuffer;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -37,6 +39,8 @@ public final class UvcCameraManager implements AutoCloseable {
         /** Final callback, after USB/native cleanup. Delivered once even though ordinary callbacks are suppressed. */
         default void onShutdown() {}
         default void onError(UsbDevice device, String message, Throwable cause) {}
+        /** Override this OR onError. Default dispatch preserves existing listeners without double delivery. */
+        default void onFailure(CameraFailure failure) { onError(failure.device, failure.message, failure.cause); }
     }
     public interface FrameListener { void onFrame(Camera camera, CameraFrame frame); }
     public interface ControlAction { void run(UVCControl control); }
@@ -68,7 +72,9 @@ public final class UvcCameraManager implements AutoCloseable {
         usb = (UsbManager) app.getSystemService(Context.USB_SERVICE);
         if (usb == null) throw new IllegalStateException("USB service unavailable");
         thread.start(); worker = new Handler(thread.getLooper());
-        monitor = new USBMonitor(app, new USBMonitor.OnDeviceConnectListener() {
+        USBMonitor created;
+        try {
+        created = new USBMonitor(app, new USBMonitor.OnDeviceConnectListener() {
             public void onAttach(UsbDevice device) {
                 if (!closed.get() && isCamera(device) && attached.add(device.getDeviceName())) {
                     emit(() -> listener.onAttached(device));
@@ -77,7 +83,7 @@ public final class UvcCameraManager implements AutoCloseable {
             public void onDetach(UsbDevice device) {
                 attached.remove(device.getDeviceName());
                 Camera camera = cameras.get(device.getDeviceName());
-                if (camera != null) stop(camera);
+                if (camera != null) fail(camera, CameraFailure.Code.DEVICE_DETACHED, "Camera was detached", null);
                 emit(() -> listener.onDetached(device));
             }
             public void onDeviceOpen(UsbDevice device, USBMonitor.UsbControlBlock control, boolean fresh) {
@@ -90,14 +96,27 @@ public final class UvcCameraManager implements AutoCloseable {
             }
             public void onDeviceClose(UsbDevice device, USBMonitor.UsbControlBlock control) {
                 Camera camera = cameras.get(device.getDeviceName());
-                if (camera != null) stop(camera);
+                if (camera != null) fail(camera, CameraFailure.Code.CAMERA_CLOSED, "USB camera was closed", null);
             }
-            public void onCancel(UsbDevice device) { permissionFailed(device, "USB access denied", null); }
+            public void onCancel(UsbDevice device) { permissionFailed(device, CameraFailure.Code.USB_PERMISSION_DENIED, "USB access denied", null); }
             public void onError(UsbDevice device, USBMonitor.USBException error) {
-                permissionFailed(device, "USB open failed", error);
+                permissionFailed(device, CameraFailure.Code.OPEN_FAILED, "USB open failed", error);
             }
         }, worker, worker, devicePollMillis);
-        worker.post(monitor::register);
+        } catch (RuntimeException | LinkageError error) {
+            thread.quitSafely();
+            throw error;
+        }
+        monitor = created;
+        worker.post(() -> {
+            try { if (!closed.get()) monitor.register(); }
+            catch (RuntimeException error) {
+                CameraFailure failure = new CameraFailure(CameraFailure.Code.INITIALIZATION, null,
+                        "USB monitor initialization failed", error, null);
+                main.post(() -> listener.onFailure(failure));
+                close();
+            }
+        });
     }
 
     public static boolean isCamera(UsbDevice device) {
@@ -120,7 +139,7 @@ public final class UvcCameraManager implements AutoCloseable {
         boolean accepted = worker.post(() -> {
             if (closed.get() || camera.closed.get()) { camera.closed.set(true); return; }
             if (cameras.containsKey(device.getDeviceName())) {
-                fail(camera, "Device already has a session", null); return;
+                fail(camera, CameraFailure.Code.OPEN_FAILED, "Device already has a session", null); return;
             }
             cameras.put(device.getDeviceName(), camera);
             permissions.add(camera); pumpPermissions();
@@ -136,11 +155,15 @@ public final class UvcCameraManager implements AutoCloseable {
             if (next.closed.get()) continue;
             requesting = next;
             final Camera pending = next;
-            monitor.requestPermission(next.device);
+            try { monitor.requestPermission(next.device); }
+            catch (RuntimeException error) {
+                fail(pending, CameraFailure.Code.USB_PERMISSION_DENIED, "USB permission request failed", error);
+                return; // stop() advances the serialized permission queue.
+            }
             worker.postAtTime(() -> {
                 if (requesting == pending) {
                     requesting = null;
-                    fail(pending, "USB permission request timed out", null);
+                    fail(pending, CameraFailure.Code.USB_PERMISSION_TIMEOUT, "USB permission request timed out", null);
                     pumpPermissions();
                 }
             }, pending, SystemClock.uptimeMillis() + 30000);
@@ -148,10 +171,10 @@ public final class UvcCameraManager implements AutoCloseable {
         }
     }
 
-    private void permissionFailed(UsbDevice device, String message, Throwable cause) {
+    private void permissionFailed(UsbDevice device, CameraFailure.Code code, String message, Throwable cause) {
         Camera camera = requesting;
         if (camera == null || !camera.device.equals(device)) return;
-        requesting = null; fail(camera, message, cause); pumpPermissions();
+        requesting = null; fail(camera, code, message, cause); pumpPermissions();
     }
 
     private void start(Camera session, USBMonitor.UsbControlBlock control) {
@@ -161,32 +184,46 @@ public final class UvcCameraManager implements AutoCloseable {
             UVCCamera camera = new UVCCamera(new UVCParam(config.size(), config.quirks | UVCCamera.getRecommendedPlatformQuirks()));
             session.nativeCamera = camera;
             int status = camera.open(control);
-            if (status != 0) throw new IllegalStateException("UVC open/mode negotiation failed: " + status);
+            if (status != 0) {
+                String message = "UVC open/mode negotiation failed: " + status;
+                fail(session, new CameraFailure(CameraFailure.Code.OPEN_FAILED, session.device,
+                        message, new IllegalStateException(message), status));
+                return;
+            }
             if (session.preview != null) camera.setPreviewDisplay(session.preview);
-            if (session.frames != null) camera.setFrameCallback(buffer -> {
+            if (session.frames != null) camera.setFrameCallback(new ITimestampedFrameCallback() {
+              @Override public void onFrame(ByteBuffer buffer, long receivedTime, long nativeSequence) {
                 if (closed.get() || session.closed.get()) return;
                 long sequence = session.frameCount.incrementAndGet();
                 try {
-                    session.frames.onFrame(session, new CameraFrame(buffer, config, sequence, SystemClock.elapsedRealtimeNanos()));
-                } catch (RuntimeException error) {
+                    session.frames.onFrame(session, new CameraFrame(buffer, config, 0, sequence,
+                            SystemClock.elapsedRealtimeNanos(), receivedTime, nativeSequence));
+                } catch (RuntimeException | LinkageError error) {
                     // Close on the command thread: stopping native capture inside its callback would deadlock.
                     if (session.closed.compareAndSet(false, true))
-                        worker.post(() -> fail(session, "Frame listener failed", error));
+                        worker.post(() -> fail(session, CameraFailure.Code.FRAME_CONSUMER_FAILED, "Frame listener failed", error));
                 }
+              }
             }, config.pixelFormat);
             camera.startPreview();
             emit(() -> { if (!session.closed.get()) listener.onOpened(session); });
             worker.postAtTime(() -> {
-                if (!session.closed.get() && session.receivedFrames() == 0) fail(session, "Camera produced no frames within 5 seconds", null);
+                if (!session.closed.get() && session.receivedFrames() == 0)
+                    fail(session, CameraFailure.Code.STREAM_TIMEOUT, "Camera produced no frames within 5 seconds", null);
             }, session, SystemClock.uptimeMillis() + 5000);
-        } catch (Exception error) { fail(session, "Camera start failed", error); }
+        } catch (Exception | LinkageError error) { fail(session, CameraFailure.Code.OPEN_FAILED, "Camera start failed", error); }
     }
 
-    private void fail(Camera camera, String message, Throwable cause) {
+    private void fail(Camera camera, CameraFailure.Code code, String message, Throwable cause) {
+        fail(camera, new CameraFailure(code, camera.device, message, cause, null));
+    }
+
+    private void fail(Camera camera, CameraFailure failure) {
         // Publish the reason before onClosed: a pair owner must stop its peer immediately,
         // without losing the detailed error while that cleanup suppresses ordinary callbacks.
-        camera.failureCause = cause; camera.failureMessage = message;
-        stop(camera); emit(() -> listener.onError(camera.device, message, cause));
+        camera.failure = failure;
+        camera.failureCause = failure.cause; camera.failureMessage = failure.message;
+        stop(camera); emit(() -> listener.onFailure(failure));
     }
 
     private void stop(Camera camera) {
@@ -200,8 +237,13 @@ public final class UvcCameraManager implements AutoCloseable {
         UVCCamera nativeCamera = camera.nativeCamera; camera.nativeCamera = null;
         if (nativeCamera != null) {
             try { nativeCamera.destroy(true); }
-            catch (RuntimeException error) { emit(() -> listener.onError(camera.device, "Camera release failed", error)); }
-            finally { emit(() -> listener.onClosed(camera)); }
+            catch (RuntimeException error) { emit(() -> listener.onFailure(new CameraFailure(
+                    CameraFailure.Code.RELEASE_FAILED, camera.device, "Camera release failed", error, null))); }
+        }
+        // A permission-cancelled or never-opened camera also has one terminal notification.
+        if (!camera.closedDelivered) {
+            camera.closedDelivered = true;
+            emit(() -> listener.onClosed(camera));
         }
         if (wasRequesting) pumpPermissions();
     }
@@ -235,10 +277,13 @@ public final class UvcCameraManager implements AutoCloseable {
         private volatile UVCCamera nativeCamera;
         volatile String failureMessage;
         Throwable failureCause;
+        volatile CameraFailure failure;
+        private boolean closedDelivered; // command thread only
         private Camera(UsbDevice device, StreamConfig config, Surface preview, FrameListener frames) {
             this.device = device; this.config = config; this.preview = preview; this.frames = frames;
         }
         public boolean isClosed() { return closed.get(); }
+        public CameraFailure failure() { return failure; }
         public long receivedFrames() {
             UVCCamera camera = nativeCamera;
             long count = frames == null && camera != null ? camera.getPreviewFrameCount() : 0;
@@ -251,7 +296,8 @@ public final class UvcCameraManager implements AutoCloseable {
             worker.post(() -> {
                 if (!closed.get() && nativeCamera != null) {
                     try { action.run(nativeCamera.getControl()); }
-                    catch (RuntimeException error) { emit(() -> listener.onError(device, "Device control failed", error)); }
+                    catch (RuntimeException | LinkageError error) { emit(() -> listener.onFailure(new CameraFailure(
+                            CameraFailure.Code.CONTROL_FAILED, device, "Device control failed", error, null))); }
                 }
             });
         }

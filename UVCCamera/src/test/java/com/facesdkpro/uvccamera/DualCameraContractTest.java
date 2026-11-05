@@ -26,6 +26,11 @@ public class DualCameraContractTest {
         pixels.flip(); return new CameraFrame(pixels, stream, sequence, arrival);
     }
     private void await(CountDownLatch latch) throws Exception { assertTrue("Timed out", latch.await(3, TimeUnit.SECONDS)); }
+    private void awaitCondition(java.util.function.BooleanSupplier condition) throws Exception {
+        long deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(3);
+        while(!condition.getAsBoolean()&&System.nanoTime()<deadline)Thread.sleep(1);
+        assertTrue("Timed out waiting for worker state",condition.getAsBoolean());
+    }
 
     @Test public void nv21SlicesRespectInputWindowAndChromaOrderWithoutCopying() {
         ByteBuffer storage = ByteBuffer.allocateDirect(20);
@@ -123,24 +128,31 @@ public class DualCameraContractTest {
     @Test public void staleSkewedAndOutOfOrderFramesCannotBeDeliveredAsCurrentPair() throws Exception {
         CountDownLatch delivered = new CountDownLatch(1), drained = new CountDownLatch(1);
         AtomicLong sequence = new AtomicLong(); List<Throwable> errors = Collections.synchronizedList(new ArrayList<>());
-        FramePairDispatcher dispatcher = new FramePairDispatcher(1, config(), System::nanoTime, pair -> {
+        AtomicLong clock = new AtomicLong(TimeUnit.SECONDS.toNanos(5));
+        FramePairDispatcher dispatcher = new FramePairDispatcher(1, config(), clock::get, pair -> {
             sequence.set(pair.rgb.sequence); delivered.countDown();
         }, errors::add, drained::countDown);
-        long now = System.nanoTime();
+        long now = clock.get();
         dispatcher.offer(true, frame(true, 1, 1, now - TimeUnit.SECONDS.toNanos(1)));
         dispatcher.offer(false, frame(false, 1, 1, now - TimeUnit.SECONDS.toNanos(1)));
-        Thread.sleep(30); assertEquals(1, delivered.getCount());
-        now = System.nanoTime(); dispatcher.offer(true, frame(true, 2, 2, now - TimeUnit.MILLISECONDS.toNanos(100)));
-        dispatcher.offer(false, frame(false, 2, 2, now)); Thread.sleep(30); assertEquals(1, delivered.getCount());
-        long fresh = System.nanoTime(); dispatcher.offer(true, frame(true, 3, 3, fresh));
+        assertEquals(1, delivered.getCount());
+        dispatcher.offer(true, frame(true, 2, 2, now - TimeUnit.MILLISECONDS.toNanos(100)));
+        dispatcher.offer(false, frame(false, 2, 2, now));
+        awaitCondition(()->dispatcher.diagnostics().skewRgb==1);assertEquals(1,delivered.getCount());
+        // The old IR remains fresh but is too far from the next RGB. Wait for that rejection,
+        // instead of racing a newer IR against the pair worker and asserting a scheduler accident.
+        long fresh = clock.addAndGet(TimeUnit.MILLISECONDS.toNanos(100));
+        dispatcher.offer(true, frame(true, 3, 3, fresh));
+        awaitCondition(()->dispatcher.diagnostics().skewIr==1);
         dispatcher.offer(true, frame(true, 4, 4, fresh - 1)); // cannot replace a newer sample
         dispatcher.offer(false, frame(false, 3, 3, fresh)); await(delivered);
         dispatcher.close(); await(drained); assertEquals(3, sequence.get()); assertTrue(errors.toString(), errors.isEmpty());
         PairingDiagnostics stats = dispatcher.diagnostics();
-        assertEquals(3, stats.rgbFrames); assertEquals(3, stats.irFrames);
+        // Expired input is now discarded BEFORE the pixel copy, not counted as a fresh pooled frame.
+        assertEquals(2, stats.rgbFrames); assertEquals(2, stats.irFrames);
         assertEquals(1, stats.expiredRgb); assertEquals(1, stats.expiredIr);
         assertEquals(1, stats.skewRgb); assertEquals(1, stats.outOfOrderRgb);
-        assertEquals(1, stats.replacedIr);
+        assertEquals(0, stats.replacedIr);assertEquals(1,stats.skewIr);
         assertEquals(1, stats.dispatchedPairs); assertEquals(5, stats.discardedFrames());
     }
 
@@ -154,5 +166,87 @@ public class DualCameraContractTest {
         await(failed); await(drained);
         dispatcher.offer(true, frame(true, 2, 2, now + 1)); dispatcher.offer(false, frame(false, 2, 2, now + 1));
         dispatcher.close(); assertEquals(1, calls.get()); assertEquals(1, failures.get());
+    }
+
+    @Test public void nativeReceiptAgeCannotBeRenewedByLateJavaCallbackAndDoesNotCopyPixels() throws Exception {
+        CountDownLatch drained=new CountDownLatch(1);AtomicInteger copies=new AtomicInteger();
+        long now=TimeUnit.SECONDS.toNanos(5),old=now-TimeUnit.SECONDS.toNanos(1);
+        FramePairDispatcher dispatcher=new FramePairDispatcher(1,config(),()->now,pair->fail("Stale pair"),
+                error->fail(error.toString()),drained::countDown,(frame,target,rotation)->copies.incrementAndGet());
+        try {
+            dispatcher.offer(true,new CameraFrame(ByteBuffer.allocateDirect(12),config().rgb,0,1,now,old,1));
+            dispatcher.offer(false,new CameraFrame(ByteBuffer.allocateDirect(8),config().ir,0,1,now,old,1));
+            PairingDiagnostics stats=dispatcher.diagnostics();
+            assertEquals(0,copies.get());assertEquals(0,stats.rgbFrames);assertEquals(0,stats.irFrames);
+            assertEquals(1,stats.expiredRgb);assertEquals(1,stats.expiredIr);
+            assertEquals(PairingDiagnostics.State.FRAME_EXPIRED,stats.state);
+        } finally {dispatcher.close();await(drained);}
+    }
+
+    @Test public void slowRgbCopyDoesNotHoldIrOrDiagnosticsLockAndCloseWaitsForCopy() throws Exception {
+        CountDownLatch entered=new CountDownLatch(1),release=new CountDownLatch(1),drained=new CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicReference<Throwable> error=new java.util.concurrent.atomic.AtomicReference<>();
+        FramePairDispatcher dispatcher=new FramePairDispatcher(1,config(),System::nanoTime,pair->{},error::set,
+                drained::countDown,(frame,target,rotation)->{
+                    if(frame.pixelFormat==UVCCamera.PIXEL_FORMAT_NV21){
+                        entered.countDown();try{assertTrue(release.await(3,TimeUnit.SECONDS));}
+                        catch(InterruptedException failure){throw new AssertionError(failure);}
+                    }
+                    target.clear();target.put(frame.pixels());target.flip();
+                });
+        Thread rgb=new Thread(()->{try{dispatcher.offer(true,frame(true,1,1,System.nanoTime()));}catch(Throwable failure){error.set(failure);}});
+        try {
+            rgb.start();await(entered);
+            dispatcher.offer(false,frame(false,2,1,System.nanoTime()));
+            assertTrue(dispatcher.diagnostics().pendingIr);assertEquals(1,dispatcher.diagnostics().activeCopies);
+            dispatcher.close();assertEquals(1,drained.getCount());
+        } finally {release.countDown();rgb.join(3000);dispatcher.close();await(drained);}
+        assertFalse(rgb.isAlive());assertNull(error.get());assertEquals(0,dispatcher.diagnostics().activeCopies);
+    }
+
+    @Test public void metadataSurvivesPairOwnershipAndNativeSequenceWrapIsOrdered() throws Exception {
+        CountDownLatch delivered=new CountDownLatch(1),drained=new CountDownLatch(1);
+        AtomicLong now=new AtomicLong(TimeUnit.SECONDS.toNanos(5));
+        java.util.concurrent.atomic.AtomicReference<FramePair> result=new java.util.concurrent.atomic.AtomicReference<>();
+        FramePairDispatcher dispatcher=new FramePairDispatcher(1,config(),now::get,pair->{
+            result.set(pair);delivered.countDown();
+        },error->{throw new AssertionError(error);},drained::countDown);
+        try {
+            for(int i=0;i<3;i++){
+                long time=now.addAndGet(1);
+                dispatcher.offer(true,new CameraFrame(ByteBuffer.allocateDirect(12),config().rgb,0,i+1,time,time,
+                        (0xfffffffeL+i)&0xffffffffL));
+            }
+            long time=now.incrementAndGet();
+            dispatcher.offer(true,new CameraFrame(ByteBuffer.allocateDirect(12),config().rgb,0,4,time,time,0));
+            time=now.incrementAndGet();
+            dispatcher.offer(false,new CameraFrame(ByteBuffer.allocateDirect(8),config().ir,0,1,time+10,time,123));
+            await(delivered);
+            // Numeric metadata only: do not inspect retained borrowed pixels after the callback.
+            assertEquals(0,result.get().rgb.nativeSequence);assertEquals(123,result.get().ir.nativeSequence);
+            assertEquals(10,result.get().ir.inputLatencyNanos());
+            assertEquals(time,result.get().ir.arrivalTimeNanos);
+            assertEquals(1,dispatcher.diagnostics().outOfOrderRgb);
+        } finally {dispatcher.close();await(drained);}
+    }
+
+    @Test public void healthSeparatesSlowConsumerAndRecordsItsDuration() throws Exception {
+        AtomicLong now=new AtomicLong(TimeUnit.SECONDS.toNanos(5));
+        CountDownLatch entered=new CountDownLatch(1),release=new CountDownLatch(1),drained=new CountDownLatch(1);
+        FramePairDispatcher dispatcher=new FramePairDispatcher(1,config(),now::get,pair->{
+            entered.countDown();try{assertTrue(release.await(3,TimeUnit.SECONDS));}
+            catch(InterruptedException error){throw new AssertionError(error);}
+        },error->{throw new AssertionError(error);},drained::countDown);
+        try {
+            assertEquals(PairingDiagnostics.State.WAITING_BOTH,dispatcher.diagnostics().state);
+            dispatcher.offer(true,frame(true,1,1,now.get()));
+            assertEquals(PairingDiagnostics.State.WAITING_IR,dispatcher.diagnostics().state);
+            dispatcher.offer(false,frame(false,1,1,now.get()));await(entered);
+            now.addAndGet(TimeUnit.MILLISECONDS.toNanos(151));
+            assertEquals(PairingDiagnostics.State.CONSUMER_BUSY,dispatcher.diagnostics().state);
+        } finally {release.countDown();dispatcher.close();await(drained);}
+        PairingDiagnostics stats=dispatcher.diagnostics();
+        assertEquals(PairingDiagnostics.State.CLOSED,stats.state);assertFalse(stats.consumerActive);
+        assertEquals(TimeUnit.MILLISECONDS.toNanos(151),stats.maxConsumerDurationNanos);
     }
 }

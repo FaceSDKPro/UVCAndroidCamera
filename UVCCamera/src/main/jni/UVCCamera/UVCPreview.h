@@ -57,6 +57,7 @@ typedef int (*convFunc_t)(uvc_frame_t *in, uvc_frame_t *out);
 // for callback to Java object
 typedef struct {
     jmethodID onFrame;
+    bool withTiming;
 } Fields_iframecallback;
 
 class UVCPreview {
@@ -149,7 +150,7 @@ private:
     void callbackPixelFormatChanged();
     void pauseCaptureLocked();
     void resumeCaptureLocked();
-    uvc_frame_t *decodeCaptureFrame(uvc_frame_t *frame, bool gray);
+    uvc_frame_t *decodeCaptureFrame(uvc_frame_t *frame, bool gray, MjpegDecoder &decoder);
 
 public:
     UVCPreview(uvc_device_handle_t *devh);
