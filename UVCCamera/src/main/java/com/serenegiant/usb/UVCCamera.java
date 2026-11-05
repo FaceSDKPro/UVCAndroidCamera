@@ -560,12 +560,18 @@ public class UVCCamera {
         return mNativePtr != 0 ? nativeGetPreviewFrameCount(mNativePtr) : 0;
     }
 
-    /** Start preview and/or pixel delivery. */
+    /** Start preview and/or pixel delivery, returning only after native stream setup completes. */
     public synchronized void startPreview() {
+        int status = startPreviewWithStatus();
+        if (status != 0) throw new IllegalStateException("UVC capture could not start: " + status);
+    }
+
+    /** Exact native stream startup status; zero means USB transfers and workers started. */
+    public synchronized int startPreviewWithStatus() {
         if (mCtrlBlock != null) {
-            int status = nativeStartPreview(mNativePtr);
-            if (status != 0) throw new IllegalStateException("UVC capture could not start: " + status);
+            return nativeStartPreview(mNativePtr);
         }
+        throw new IllegalStateException("Camera is not open");
     }
 
     /**

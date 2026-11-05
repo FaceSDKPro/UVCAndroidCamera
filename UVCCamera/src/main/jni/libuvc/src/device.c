@@ -1,3 +1,4 @@
+// Modified by FaceSDKPro, 2026-11-05; see docs/UPSTREAM.md for lifecycle/diagnostic changes.
 /*********************************************************************
 * Software License Agreement (BSD License)
 *
@@ -347,8 +348,20 @@ static uvc_error_t uvc_open_internal(
   uvc_ref_device(dev);
 
   internal_devh = calloc(1, sizeof(*internal_devh));
+  if (!internal_devh) {
+    libusb_close(usb_devh);
+    uvc_unref_device(dev);
+    return UVC_ERROR_NO_MEM;
+  }
   internal_devh->dev = dev;
   internal_devh->usb_devh = usb_devh;
+  ret = UVC_ERROR_OTHER;
+  if (pthread_mutex_init(&internal_devh->status_mutex, NULL)) goto fail;
+  if (pthread_cond_init(&internal_devh->status_cond, NULL)) {
+    pthread_mutex_destroy(&internal_devh->status_mutex);
+    goto fail;
+  }
+  internal_devh->status_sync_initialized = 1;
 
   ret = uvc_get_device_info(internal_devh, &(internal_devh->info));
 
@@ -378,7 +391,10 @@ static uvc_error_t uvc_open_internal(
                                    _uvc_status_callback,
                                    internal_devh,
                                    0);
+    pthread_mutex_lock(&internal_devh->status_mutex);
     ret = libusb_submit_transfer(internal_devh->status_xfer);
+    internal_devh->status_active = ret == UVC_SUCCESS;
+    pthread_mutex_unlock(&internal_devh->status_mutex);
     UVC_DEBUG("libusb_submit_transfer() = %d", ret);
 
     if (ret) {
@@ -1714,6 +1730,10 @@ void uvc_free_devh(uvc_device_handle_t *devh) {
 
   if (devh->status_xfer)
     libusb_free_transfer(devh->status_xfer);
+  if (devh->status_sync_initialized) {
+    pthread_cond_destroy(&devh->status_cond);
+    pthread_mutex_destroy(&devh->status_mutex);
+  }
 
   free(devh);
 
@@ -1734,6 +1754,16 @@ void uvc_close(uvc_device_handle_t *devh) {
 
   if (devh->streams)
     uvc_stop_streaming(devh);
+
+  // Drain the interrupt transfer while the event thread and interface are alive.
+  // Releasing/reattaching first lets its callback resubmit into a closing handle.
+  pthread_mutex_lock(&devh->status_mutex);
+  devh->status_closing = 1;
+  if (devh->status_active) {
+    libusb_cancel_transfer(devh->status_xfer);
+    while (devh->status_active) pthread_cond_wait(&devh->status_cond, &devh->status_mutex);
+  }
+  pthread_mutex_unlock(&devh->status_mutex);
 
   uvc_release_if(devh, devh->info->ctrl_if.bInterfaceNumber);
 
@@ -1915,14 +1945,15 @@ void LIBUSB_CALL _uvc_status_callback(struct libusb_transfer *transfer) {
   UVC_ENTER();
 
   uvc_device_handle_t *devh = (uvc_device_handle_t *) transfer->user_data;
+  int resubmit = 1;
 
   switch (transfer->status) {
   case LIBUSB_TRANSFER_ERROR:
   case LIBUSB_TRANSFER_CANCELLED:
   case LIBUSB_TRANSFER_NO_DEVICE:
     UVC_DEBUG("not processing/resubmitting, status = %d", transfer->status);
-    UVC_EXIT_VOID();
-    return;
+    resubmit = 0;
+    break;
   case LIBUSB_TRANSFER_COMPLETED:
     uvc_process_status_xfer(devh, transfer);
     break;
@@ -1933,11 +1964,12 @@ void LIBUSB_CALL _uvc_status_callback(struct libusb_transfer *transfer) {
     break;
   }
 
-#ifdef UVC_DEBUGGING
-  uvc_error_t ret =
-#endif
-      libusb_submit_transfer(transfer);
-  UVC_DEBUG("libusb_submit_transfer() = %d", ret);
+  pthread_mutex_lock(&devh->status_mutex);
+  if (devh->status_closing || !resubmit || libusb_submit_transfer(transfer) != UVC_SUCCESS) {
+    devh->status_active = 0;
+    pthread_cond_broadcast(&devh->status_cond);
+  }
+  pthread_mutex_unlock(&devh->status_mutex);
 
   UVC_EXIT_VOID();
 }

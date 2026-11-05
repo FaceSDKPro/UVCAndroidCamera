@@ -1,3 +1,4 @@
+// Modified by FaceSDKPro, 2026-11-05; status-transfer shutdown synchronization.
 /** @file libuvc_internal.h
   * @brief Implementation-specific UVC constants and structures.
   * @cond include_hidden
@@ -342,6 +343,9 @@ struct uvc_device_handle {
     libusb_device_handle *usb_devh;
     struct uvc_device_info *info;
     struct libusb_transfer *status_xfer;
+    pthread_mutex_t status_mutex;
+    pthread_cond_t status_cond;
+    uint8_t status_sync_initialized, status_active, status_closing;
     uint8_t status_buf[32];
     /** Function to call when we receive status updates from the camera */
     uvc_status_callback_t *status_cb;

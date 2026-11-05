@@ -1,4 +1,4 @@
-// Modified by FaceSDKPro, 2026-11-04; see UPSTREAM.md for changes.
+// Modified by FaceSDKPro, 2026-11-05; see UPSTREAM.md for changes.
 /*
  * UVCCamera
  * library and sample to access to UVC web camera on non-rooted Android device
@@ -26,6 +26,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <unistd.h>
+#include <limits.h>
 
 #ifndef LOG_NDEBUG
 #define  LOCAL_DEBUG 1
@@ -410,30 +411,35 @@ void UVCPreview::clearDisplay() {
 
 int UVCPreview::startPreview() {
     ENTER();
-
-    int result = EXIT_FAILURE;
-    if (!isRunning()) {
-        mPreviewFrameCount.store(0, std::memory_order_relaxed);
-        mIsRunning = true;
-        pthread_mutex_lock(&preview_mutex);
-        {
-            if (mPreviewWindow || mFrameCallbackObj) {
-                result = pthread_create(&preview_thread, NULL, preview_thread_func, (void *) this);
-                if (result) preview_thread = 0;
-            }
-        }
+    pthread_mutex_lock(&preview_mutex);
+    const bool running = isRunning();
+    if (running || !(mPreviewWindow || mFrameCallbackObj)) {
+        int result = running ? UVC_ERROR_BUSY : UVC_ERROR_INVALID_PARAM;
         pthread_mutex_unlock(&preview_mutex);
-        if (UNLIKELY(result != EXIT_SUCCESS)) {
-            LOGW("UVCCamera::window does not exist/already running/could not create thread etc.");
-            mIsRunning = false;
-            pthread_mutex_lock(&preview_mutex);
-            {
-                pthread_cond_signal(&preview_sync);
-            }
-            pthread_mutex_unlock(&preview_mutex);
-        }
+        return result;
     }
+    mPreviewFrameCount.store(0, std::memory_order_relaxed);
+    mIsRunning = true;
+    mStartupStatus = INT_MIN;
+    int result = pthread_create(&preview_thread, NULL, preview_thread_func, this);
+    if (result) {
+        preview_thread = 0;
+    } else {
+        // The command thread must not open the next camera until USB streaming
+        // is actually started. pthread_create alone says nothing about that.
+        while (mStartupStatus == INT_MIN) pthread_cond_wait(&preview_sync, &preview_mutex);
+        result = mStartupStatus;
+    }
+    pthread_mutex_unlock(&preview_mutex);
+    if (result) stopPreview();
     RETURN(result, int);
+}
+
+void UVCPreview::completeStartup(int status) {
+    pthread_mutex_lock(&preview_mutex);
+    mStartupStatus = status;
+    pthread_cond_broadcast(&preview_sync);
+    pthread_mutex_unlock(&preview_mutex);
 }
 
 int UVCPreview::stopPreview() {
@@ -554,17 +560,15 @@ void UVCPreview::clearPreviewFrame() {
 
 void *UVCPreview::preview_thread_func(void *vptr_args) {
     pthread_setname_np(pthread_self(), "preview_thread");
-    int result;
-
     ENTER();
+    // startPreview always passes its live owner and stopPreview joins this worker.
     UVCPreview *preview = reinterpret_cast<UVCPreview *>(vptr_args);
-    if (LIKELY(preview)) {
-        uvc_stream_ctrl_t ctrl;
-        result = preview->prepare_preview(&ctrl);
-        if (LIKELY(!result)) {
-            preview->do_preview(&ctrl);
-        }
+    uvc_stream_ctrl_t ctrl;
+    int result = preview->prepare_preview(&ctrl);
+    if (LIKELY(!result)) {
+        result = preview->do_preview(&ctrl);
     }
+    if (result) preview->completeStartup(result);
     PRE_EXIT();
     pthread_exit(NULL);
 }
@@ -617,13 +621,17 @@ int UVCPreview::ensureCaptureThread() {
     return 0;
 }
 
-void UVCPreview::do_preview(uvc_stream_ctrl_t *ctrl) {
+int UVCPreview::do_preview(uvc_stream_ctrl_t *ctrl) {
     int result = uvc_start_streaming(mDeviceHandle, ctrl, uvc_preview_frame_callback, this, 0);
-    if (result) { LOGE("failed start_streaming (%d)", result); return; }
+    if (result) { LOGE("failed start_streaming (%d)", result); return result; }
     pthread_mutex_lock(&capture_mutex);
     const bool initialCapture = mFrameCallbackObj || mCaptureWindow;
     pthread_mutex_unlock(&capture_mutex);
-    if (initialCapture && ensureCaptureThread()) { uvc_stop_streaming(mDeviceHandle); return; }
+    if (initialCapture) {
+        result = ensureCaptureThread();
+        if (result) { uvc_stop_streaming(mDeviceHandle); return result; }
+    }
+    completeStartup(0);
     // This thread owns creation AND joining of capture_thread, including lazy
     // creation if a caller enables pixel delivery after starting pure preview.
     while (isRunning()) {
@@ -687,6 +695,7 @@ void UVCPreview::do_preview(uvc_stream_ctrl_t *ctrl) {
     pthread_mutex_unlock(&capture_mutex);
     if (capture_thread) pthread_join(capture_thread, NULL);
     capture_thread = 0;
+    return 0;
 }
 
 void UVCPreview::drawPreviewMjpeg(uvc_frame_t *input) {

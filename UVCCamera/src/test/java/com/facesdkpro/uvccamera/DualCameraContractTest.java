@@ -249,4 +249,45 @@ public class DualCameraContractTest {
         assertEquals(PairingDiagnostics.State.CLOSED,stats.state);assertFalse(stats.consumerActive);
         assertEquals(TimeUnit.MILLISECONDS.toNanos(151),stats.maxConsumerDurationNanos);
     }
+
+    @Test public void healthKeepsLatestInputTimesAfterDeliveryAndRejectsOlderInput() throws Exception {
+        long time=TimeUnit.SECONDS.toNanos(5);
+        AtomicLong now=new AtomicLong(time);
+        CountDownLatch delivered=new CountDownLatch(1),drained=new CountDownLatch(1);
+        FramePairDispatcher dispatcher=new FramePairDispatcher(1,config(),now::get,
+                pair->delivered.countDown(),error->{throw new AssertionError(error);},drained::countDown);
+        try {
+            dispatcher.offer(true,frame(true,1,1,time-2));
+            dispatcher.offer(false,frame(false,1,1,time-1));await(delivered);
+            dispatcher.offer(true,frame(true,2,2,time-3));
+            PairingDiagnostics stats=dispatcher.diagnostics();
+            assertEquals(time-2,stats.lastRgbTimeNanos);assertEquals(time-1,stats.lastIrTimeNanos);
+            assertEquals(1,stats.outOfOrderRgb);
+        } finally {dispatcher.close();await(drained);}
+        assertEquals(time-2,dispatcher.diagnostics().lastRgbTimeNanos);
+        assertEquals(time-1,dispatcher.diagnostics().lastIrTimeNanos);
+    }
+
+    @Test public void closeDuringFailedCopyDrainsExactlyOnce() throws Exception {
+        CountDownLatch entered=new CountDownLatch(1),release=new CountDownLatch(1),drained=new CountDownLatch(1);
+        AtomicInteger notifications=new AtomicInteger();
+        java.util.concurrent.atomic.AtomicReference<Throwable> failure=new java.util.concurrent.atomic.AtomicReference<>();
+        FramePairDispatcher dispatcher=new FramePairDispatcher(1,config(),System::nanoTime,pair->{},
+                error->{throw new AssertionError(error);},()->{notifications.incrementAndGet();drained.countDown();},
+                (frame,target,rotation)->{
+                    entered.countDown();
+                    try {assertTrue(release.await(3,TimeUnit.SECONDS));}
+                    catch(InterruptedException error){throw new AssertionError(error);}
+                    throw new IllegalArgumentException("copy failed");
+                });
+        Thread producer=new Thread(()->{
+            try {dispatcher.offer(true,frame(true,1,1,System.nanoTime()));}
+            catch(Throwable error){failure.set(error);}
+        });
+        try {
+            producer.start();await(entered);dispatcher.close();assertEquals(1,drained.getCount());
+        } finally {release.countDown();producer.join(3000);dispatcher.close();await(drained);}
+        assertFalse(producer.isAlive());assertTrue(failure.get() instanceof IllegalArgumentException);
+        assertEquals(1,notifications.get());assertEquals(0,dispatcher.diagnostics().activeCopies);
+    }
 }

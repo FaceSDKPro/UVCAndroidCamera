@@ -57,12 +57,13 @@ def main():
     cflags = ['-O2', '-fno-inline', '-fno-builtin-malloc', '-fno-builtin-calloc', '-fno-builtin-realloc', '-fno-builtin-free', '-DLOG_NDEBUG', '-ffunction-sections', '-fdata-sections']
     include_flags = ['-I' + str(path) for path in includes]
     objects = []
-    for source in ['frame', 'stream']:
+    for source in ['frame', 'stream', 'device']:
         target = output / (source + '.o')
         subprocess.run([str(host / 'bin/aarch64-linux-android23-clang')] + cflags + include_flags + ['-c', str(native / ('libuvc/src/' + source + '.c')), '-o', str(target)], check=True)
         objects.append(str(target))
     base = command[:command.index(str(ROOT / 'tools/native/frame_pipeline_test.cpp'))]
-    tests = ['callback_ownership_test', 'jni_registration_test', 'frame_memory_test', 'stream_failure_test', 'frame_rotation_test']
+    tests = ['callback_ownership_test', 'jni_registration_test', 'frame_memory_test', 'stream_failure_test', 'frame_rotation_test',
+             'preview_startup_test', 'status_shutdown_test']
     for test in tests:
         cmd = base + [str(ROOT / ('tools/native/' + test + '.cpp'))]
         if test == 'callback_ownership_test':
@@ -71,8 +72,14 @@ def main():
             cmd += [str(native / 'UVCCamera/_onload.cpp')]
         elif test == 'frame_rotation_test':
             pass  # Header-only production transform; no USB mocks needed.
+        elif test == 'preview_startup_test':
+            cmd += [str(native / 'UVCCamera/UVCPreview.cpp'), str(native / 'UVCCamera/ConvertHelper.cpp'),
+                    '-DLOG_NDEBUG', '-Wl,--wrap=pthread_create', '-luvc', '-lyuv', '-ljpeg-turbo212']
+        elif test == 'status_shutdown_test':
+            cmd += objects[2:]
+            cmd += ['-Wl,--wrap=' + name for name in ['uvc_process_status_xfer', 'uvc_release_if', 'uvc_unref_device', 'uvc_free_devh']]
         else:
-            cmd += objects[:1] if test == 'frame_memory_test' else objects
+            cmd += objects[:1] if test == 'frame_memory_test' else objects[:2]
             wraps = ['realloc', 'free'] if test == 'frame_memory_test' else ['malloc', 'calloc', 'realloc', 'pthread_create', 'uvc_stream_ctrl']
             cmd += ['-Wl,--wrap=' + name for name in wraps]
         cmd += ['-L' + str(output), '-lusb1.0', '-llog', '-Wl,--gc-sections,-z,max-page-size=16384', '-Wl,-rpath,$ORIGIN', '-o', str(output / test)]

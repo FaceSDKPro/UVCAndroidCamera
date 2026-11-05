@@ -1,4 +1,4 @@
-// Modified by FaceSDKPro, 2026-11-04; see UPSTREAM.md for changes.
+// Modified by FaceSDKPro, 2026-11-05; see UPSTREAM.md for changes.
 /*
  * UVCCamera
  * library and sample to access to UVC web camera on non-rooted Android device
@@ -80,6 +80,7 @@ private:
     pthread_t preview_thread;
     pthread_mutex_t preview_mutex;
     pthread_cond_t preview_sync;
+    int mStartupStatus; // assigned before thread creation; protected by preview_mutex
     ObjectArray<uvc_frame_t *> previewFrames;
     int previewFormat;
     size_t previewBytes;
@@ -124,7 +125,8 @@ private:
 
     int prepare_preview(uvc_stream_ctrl_t *ctrl);
 
-    void do_preview(uvc_stream_ctrl_t *ctrl);
+    int do_preview(uvc_stream_ctrl_t *ctrl);
+    void completeStartup(int status);
     int ensureCaptureThread();
     void drawPreviewMjpeg(uvc_frame_t *input);
 

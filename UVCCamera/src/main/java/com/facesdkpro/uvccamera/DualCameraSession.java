@@ -44,7 +44,6 @@ public final class DualCameraSession implements AutoCloseable {
     private final Listener listener;
     private final Object lifecycle = new Object();
     private final AtomicBoolean closed = new AtomicBoolean();
-    private final AtomicLong rgbArrival = new AtomicLong(), irArrival = new AtomicLong();
     private volatile UvcCameraManager manager;
     private volatile FramePairDispatcher dispatcher;
     private volatile UvcCameraManager.Camera rgb, ir;
@@ -59,10 +58,10 @@ public final class DualCameraSession implements AutoCloseable {
             if (closed.get()) return;
             long now = SystemClock.elapsedRealtimeNanos();
             PairingDiagnostics diagnostics = pairingDiagnostics();
-            if (now - Math.max(readyAt, rgbArrival.get()) > STALL_NANOS) {
+            if (now - Math.max(readyAt, diagnostics.lastRgbTimeNanos) > STALL_NANOS) {
                 fail(new CameraFailure(CameraFailure.Code.STREAM_TIMEOUT, rgbDevice,
                         "RGB camera stopped producing usable frames for 5 seconds", null, null));
-            } else if (now - Math.max(readyAt, irArrival.get()) > STALL_NANOS) {
+            } else if (now - Math.max(readyAt, diagnostics.lastIrTimeNanos) > STALL_NANOS) {
                 fail(new CameraFailure(CameraFailure.Code.STREAM_TIMEOUT, irDevice,
                         "IR camera stopped producing usable frames for 5 seconds", null, null));
             } else if (now - Math.max(readyAt, diagnostics.lastPairTimeNanos) > STALL_NANOS) {
@@ -136,13 +135,11 @@ public final class DualCameraSession implements AutoCloseable {
                 manager = new UvcCameraManager(context, cameraListener());
                 usbDrained = false;
                 openingDevice = rgbDevice;
-                rgb = manager.open(rgbDevice, config.rgb, rgbPreview, (camera, frame) -> {
-                    rgbArrival.set(frame.arrivalTimeNanos); dispatcher.offer(true, frame);
-                });
+                rgb = manager.open(rgbDevice, config.rgb, rgbPreview,
+                        (camera, frame) -> dispatcher.offer(true, frame));
                 openingDevice = irDevice;
-                ir = manager.open(irDevice, config.ir, irPreview, (camera, frame) -> {
-                    irArrival.set(frame.arrivalTimeNanos); dispatcher.offer(false, frame);
-                });
+                ir = manager.open(irDevice, config.ir, irPreview,
+                        (camera, frame) -> dispatcher.offer(false, frame));
             } catch (RuntimeException | LinkageError error) {
                 // Including the first/second open failing: callers already own a handle and always
                 // receive completion. No lost partially-constructed session or premature Surface release.

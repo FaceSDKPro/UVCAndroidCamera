@@ -1,3 +1,4 @@
+// Modified by FaceSDKPro, 2026-11-05; see docs/UPSTREAM.md for lifecycle/diagnostic changes.
 /* -*- Mode: C; indent-tabs-mode:t ; c-basic-offset:8 -*- */
 /*
  * Core functions for libusb
@@ -2245,7 +2246,8 @@ int API_EXPORTED libusb_set_option(libusb_context *ctx,
 
 #if defined(ENABLE_LOGGING) && !defined(ENABLE_DEBUG_LOGGING)
 /* returns the log level as defined in the LIBUSB_DEBUG environment variable.
- * if LIBUSB_DEBUG is not present or not a number, returns LIBUSB_LOG_LEVEL_NONE.
+ * Without LIBUSB_DEBUG, Android retains errors for USB host diagnostics; other
+ * platforms default to LIBUSB_LOG_LEVEL_NONE. Non-numeric values disable logging.
  * value is clamped to ensure it is within the valid range of possibilities.
  */
 static enum libusb_log_level get_env_debug_level(void)
@@ -2257,7 +2259,11 @@ static enum libusb_log_level get_env_debug_level(void)
 		dbg_level = CLAMP(dbg_level, LIBUSB_LOG_LEVEL_NONE, LIBUSB_LOG_LEVEL_DEBUG);
 		level = (enum libusb_log_level)dbg_level;
 	} else {
+#ifdef __ANDROID__
+		level = LIBUSB_LOG_LEVEL_ERROR;
+#else
 		level = LIBUSB_LOG_LEVEL_NONE;
+#endif
 	}
 	return level;
 }

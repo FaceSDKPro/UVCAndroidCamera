@@ -57,8 +57,9 @@ final class FramePairDispatcher implements AutoCloseable {
         }
         worker = new ScheduledThreadPoolExecutor(1, task -> new Thread(task, "UVC-pairs")) {
             @Override protected void terminated() {
-                synchronized (lock) { workerExited = true; }
-                notifyDrained();
+                boolean notify;
+                synchronized (lock) { workerExited = true; notify = takeDrainedLocked(); }
+                if (notify) drained.run();
             }
         };
         worker.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
@@ -126,6 +127,7 @@ final class FramePairDispatcher implements AutoCloseable {
                 slot.nativeSequence = frame.nativeSequence;
                 copied = true;
             } finally {
+                boolean notify;
                 synchronized (lock) {
                     activeCopies--;
                     if (!closed) {
@@ -134,8 +136,11 @@ final class FramePairDispatcher implements AutoCloseable {
                             scheduleLocked();
                         } else (isRgb ? rgbPool : irPool).add(slot);
                     }
+                    // Already holding the ownership lock: do not acquire it a third
+                    // time per frame just to discover that normal capture is active.
+                    notify = takeDrainedLocked();
                 }
-                notifyDrained();
+                if (notify) drained.run();
             }
         }
     }
@@ -217,13 +222,11 @@ final class FramePairDispatcher implements AutoCloseable {
         }
     }
 
-    private void notifyDrained() {
-        boolean notify;
-        synchronized (lock) {
-            notify = closed && workerExited && activeCopies == 0 && !drainedDelivered;
-            if (notify) drainedDelivered = true;
-        }
-        if (notify) drained.run();
+    /** Caller holds lock; invoke the claimed notification only after unlocking. */
+    private boolean takeDrainedLocked() {
+        if (!closed || !workerExited || activeCopies != 0 || drainedDelivered) return false;
+        drainedDelivered = true;
+        return true;
     }
 
     /** No joins: both the consumer and any out-of-lock copies drain before notification. */

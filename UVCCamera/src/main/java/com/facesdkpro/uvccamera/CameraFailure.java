@@ -14,7 +14,7 @@ public final class CameraFailure {
     public final UsbDevice device;
     public final String message;
     public final Throwable cause;
-    /** Exact native open/negotiation status, or null if the failure was outside native open. */
+    /** Exact native open/negotiation/stream startup status, or null for other failures. */
     public final Integer nativeStatus;
 
     CameraFailure(Code code, UsbDevice device, String message, Throwable cause, Integer nativeStatus) {

@@ -16,8 +16,14 @@ HiFace 负责人脸检测、RGB 身份搜索、IR 活体及最终业务判断。
 ```
 
 本地 Maven 目录为 `build/sdk-maven`，相机坐标为
-`com.facesdkpro:uvc-android-camera:0.3.0`。同一坐标仅用于本地开发；新增接口正式对外发布前须选择新版本，
-不覆盖已发布的不可变版本。
+`com.facesdkpro:uvc-android-camera:0.3.2`。包含相机启动状态和 USB 关闭时序修复；
+集成方应将相机依赖版本同步升级到 `0.3.2`，不覆盖已发布的不可变版本。
+
+在 HiFace 的 `platforms/android/demo/build.gradle.kts` 中更新依赖：
+
+```kotlin
+implementation("com.facesdkpro:uvc-android-camera:0.3.2")
+```
 
 HiFace 已支持通过 Gradle 属性传入仓库目录，在 HiFace 根目录执行：
 

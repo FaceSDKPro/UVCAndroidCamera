@@ -205,7 +205,13 @@ public final class UvcCameraManager implements AutoCloseable {
                 }
               }
             }, config.pixelFormat);
-            camera.startPreview();
+            status = camera.startPreviewWithStatus();
+            if (status != 0) {
+                String message = "UVC stream startup failed: " + status;
+                fail(session, new CameraFailure(CameraFailure.Code.OPEN_FAILED, session.device,
+                        message, new IllegalStateException(message), status));
+                return;
+            }
             emit(() -> { if (!session.closed.get()) listener.onOpened(session); });
             worker.postAtTime(() -> {
                 if (!session.closed.get() && session.receivedFrames() == 0)

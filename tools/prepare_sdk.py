@@ -85,7 +85,7 @@ def main():
         for name in ['README.md', 'docs/README.zh-CN.md', 'LICENSE',
                      'docs/UPSTREAM.md', 'docs/NATIVE_BUILD.md',
                      'docs/PERFORMANCE.md', 'docs/PERFORMANCE.zh-CN.md', 'docs/VALIDATION.md',
-                     'docs/SDK_INTEGRATION.md', 'docs/SDK_INTEGRATION.zh-CN.md',
+                     'docs/SDK_INTEGRATION.md', 'docs/SDK_INTEGRATION.zh-CN.md', 'docs/RELEASE_NOTES.md',
                      'docs/HIFACE_INTEGRATION.zh-CN.md',
                      'docs/images/dual-preview-landscape.png', 'docs/images/apk-download-qr.png']:
             copy(ROOT / name, stage / name)
