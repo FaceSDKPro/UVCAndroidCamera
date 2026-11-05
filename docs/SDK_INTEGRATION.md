@@ -2,7 +2,7 @@
 
 This standalone SDK manages independent RGB/IR USB cameras, previews, controls and bounded software frame pairing.
 The Demo consumes real NV21/GRAY8 frames without a HelloFace SDK dependency, models, face recognition or liveness decisions.
-HelloFace has not been modified or linked as part of this preparation.
+For the HiFace Android integration steps and debugging counters, see [the Chinese integration guide](HIFACE_INTEGRATION.zh-CN.md).
 
 ## Build and obtain the SDK
 
@@ -110,7 +110,8 @@ StreamConfig rgb = new StreamConfig(1280, 720, 30,
     UVCCamera.UVC_VS_FRAME_MJPEG, UVCCamera.PIXEL_FORMAT_NV21, 0);
 StreamConfig ir = new StreamConfig(640, 480, 15,
     UVCCamera.UVC_VS_FRAME_UNCOMPRESSED, UVCCamera.PIXEL_FORMAT_GRAY8, 0);
-DualCameraConfig config = new DualCameraConfig(rgb, ir, 50, 150, 15)
+DualCameraConfig config = DualCameraConfig.forStreams(rgb, ir)
+    .withPairingLimits(50, 150, 15)
     .withRotations(90, 270); // Independent clockwise rotations
 
 // Update after the TextureView is laid out and whenever its dimensions change.
@@ -121,6 +122,9 @@ rgbTextureView.setTransform(PreviewTransform.fitCenter(
 // Open DualCameraSession with config. Surface preview remains in source orientation;
 // the matrix above handles its display rotation.
 ```
+
+`forStreams()` starts with the default pair limits. `withPairingLimits()` and `withRotations()`
+return new configurations without mutating the original. The existing constructors remain available.
 
 Only 0/90/180/270 degrees are accepted. Preview uses a TextureView content transform without rotating a CPU display frame;
 see [Android TextureView](https://developer.android.com/reference/android/view/TextureView).

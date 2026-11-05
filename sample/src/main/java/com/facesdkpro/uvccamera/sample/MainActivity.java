@@ -31,7 +31,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-/** Independent preview/control screen. Uses preview-only sessions and never saves images. */
+/** 双路预览与控制演示：只显示画面，不保存图像。 */
 public final class MainActivity extends Activity {
     private UvcCameraManager manager;
     private final UvcCameraManager.Camera[] cameras = new UvcCameraManager.Camera[2];
@@ -218,6 +218,7 @@ public final class MainActivity extends Activity {
                     public boolean onSurfaceTextureDestroyed(SurfaceTexture texture) {
                         Surface retired = surfaces[slot];
                         surfaces[slot] = null;
+                        // 相机仍在释放时，等 onShutdown 后再销毁旧 Surface/Texture。
                         Runnable release =
                                 () -> {
                                     if (retired != null) retired.release();
@@ -238,6 +239,7 @@ public final class MainActivity extends Activity {
 
     private void showSettings(int slot) {
         if (!visible || closing || settingsDialog != null) return;
+        // 弹窗复用当前控件；取消时恢复选择，运行中应用时重开两路。
         String role = slot == 0 ? "RGB" : "IR";
         int[] previous = settings[slot].selection();
         String selected = deviceSelectors.selectedNames()[slot];
@@ -247,7 +249,7 @@ public final class MainActivity extends Activity {
         detach(settings[slot]);
         detach(brightness[slot]);
         detach(brightnessText[slot]);
-        panel.addView(ui.field("USB 设备", devices[slot]));
+        panel.addView(ui.deviceField(devices[slot]));
         ui.gap(panel, 16);
         panel.addView(settings[slot]);
         ui.gap(panel, 18);
@@ -343,6 +345,7 @@ public final class MainActivity extends Activity {
         private UvcCameraManager owner;
 
         private boolean current() {
+            // 旧管理器的异步回调不能改动新页面状态。
             return visible && manager == owner && !closing;
         }
 
@@ -495,7 +498,7 @@ public final class MainActivity extends Activity {
                 previousCounts[i] = 0;
                 fitPreview(i);
                 previews[i].connecting();
-                // Preview-only: no frame listener or unused NV21 conversion.
+                // 仅预览，不注册帧回调或做多余的 NV21 转换。
                 cameras[i] = manager.open(selected[i], applied[i], surfaces[i], null);
             }
             updateButtons();
@@ -523,9 +526,7 @@ public final class MainActivity extends Activity {
         closeManager();
     }
 
-    /**
-     * The manager shutdown callback drains both native sessions before reuse or Surface release.
-     */
+    /** 停止接收新操作；onShutdown 后再重开或释放旧预览资源。 */
     private void closeManager() {
         if (closing) return;
         uiThread.removeCallbacks(tick);

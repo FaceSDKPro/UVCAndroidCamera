@@ -31,3 +31,9 @@ implementation project(':UVCCamera')
 ```
 
 See [SDK integration](docs/SDK_INTEGRATION.md) for usage and build steps, and [build notes](docs/NATIVE_BUILD.md) for native configuration.
+
+## APK download
+
+[Download APK](https://www.helloface.dev)
+
+![APK download QR code](docs/images/apk-download-qr.png)

@@ -56,6 +56,24 @@ public class DualCameraContractTest {
         assertThrows(IllegalArgumentException.class, () -> new DualCameraConfig(large, valid.ir, 50, 150, 15));
     }
 
+    @Test public void namedConfigStepsKeepDefaultsAndPreserveImmutableRotations() {
+        DualCameraConfig original = config();
+        DualCameraConfig defaults = DualCameraConfig.forStreams(original.rgb, original.ir);
+        assertEquals(50, defaults.maxPairSkewMillis);
+        assertEquals(150, defaults.maxFrameAgeMillis);
+        assertEquals(15, defaults.maxPairsPerSecond);
+        DualCameraConfig rotated = defaults.withRotations(90, 270);
+        DualCameraConfig tuned = rotated.withPairingLimits(40, 200, 20);
+        assertEquals(0, defaults.rgbRotationDegrees);
+        assertEquals(15, defaults.maxPairsPerSecond);
+        assertEquals(90, rotated.rgbRotationDegrees);
+        assertEquals(270, tuned.irRotationDegrees);
+        assertEquals(40, tuned.maxPairSkewMillis);
+        assertEquals(200, tuned.maxFrameAgeMillis);
+        assertEquals(20, tuned.maxPairsPerSecond);
+        assertThrows(IllegalArgumentException.class, () -> tuned.withPairingLimits(40, 39, 20));
+    }
+
     @Test public void dispatcherCopiesBorrowedInputAndDrainsOnlyAfterConsumerReturns() throws Exception {
         CountDownLatch entered = new CountDownLatch(1), release = new CountDownLatch(1), drained = new CountDownLatch(1);
         AtomicInteger pixel = new AtomicInteger(); List<Throwable> errors = Collections.synchronizedList(new ArrayList<>());
@@ -95,6 +113,11 @@ public class DualCameraContractTest {
         }
         release.countDown(); await(second); dispatcher.close(); await(drained);
         assertEquals(java.util.Arrays.asList(1L, 100L), sequences); assertEquals(1, maximum.get()); assertTrue(errors.toString(), errors.isEmpty());
+        PairingDiagnostics stats = dispatcher.diagnostics();
+        assertEquals(100, stats.rgbFrames); assertEquals(100, stats.irFrames);
+        assertEquals(2, stats.dispatchedPairs);
+        assertEquals(98, stats.replacedRgb); assertEquals(98, stats.replacedIr);
+        assertEquals(196, stats.discardedFrames());
     }
 
     @Test public void staleSkewedAndOutOfOrderFramesCannotBeDeliveredAsCurrentPair() throws Exception {
@@ -113,6 +136,12 @@ public class DualCameraContractTest {
         dispatcher.offer(true, frame(true, 4, 4, fresh - 1)); // cannot replace a newer sample
         dispatcher.offer(false, frame(false, 3, 3, fresh)); await(delivered);
         dispatcher.close(); await(drained); assertEquals(3, sequence.get()); assertTrue(errors.toString(), errors.isEmpty());
+        PairingDiagnostics stats = dispatcher.diagnostics();
+        assertEquals(3, stats.rgbFrames); assertEquals(3, stats.irFrames);
+        assertEquals(1, stats.expiredRgb); assertEquals(1, stats.expiredIr);
+        assertEquals(1, stats.skewRgb); assertEquals(1, stats.outOfOrderRgb);
+        assertEquals(1, stats.replacedIr);
+        assertEquals(1, stats.dispatchedPairs); assertEquals(5, stats.discardedFrames());
     }
 
     @Test public void consumerFailureStopsDeliveryAndReportsOnce() throws Exception {

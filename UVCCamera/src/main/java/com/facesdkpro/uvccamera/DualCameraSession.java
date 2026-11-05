@@ -7,8 +7,6 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.view.Surface;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -53,12 +51,9 @@ public final class DualCameraSession implements AutoCloseable {
 
     /** Enumerate without starting a monitor. Bind roles by VID/PID or explicit user selection. */
     public static List<UsbDevice> devices(Context context) {
+        if (context == null) throw new NullPointerException("context");
         UsbManager usb = (UsbManager) context.getApplicationContext().getSystemService(Context.USB_SERVICE);
-        List<UsbDevice> result = new ArrayList<>();
-        if (usb != null) for (UsbDevice device : usb.getDeviceList().values())
-            if (UvcCameraManager.isCamera(device)) result.add(device);
-        Collections.sort(result, (a, b) -> a.getDeviceName().compareTo(b.getDeviceName()));
-        return Collections.unmodifiableList(result);
+        return UvcDevices.list(usb);
     }
 
     /**
@@ -119,6 +114,8 @@ public final class DualCameraSession implements AutoCloseable {
 
     public boolean isClosed() { return closed.get(); }
     public long receivedFrames(Role role) { return camera(role).receivedFrames(); }
+    /** One consistent software-pairing snapshot; counters remain available after close. */
+    public PairingDiagnostics pairingDiagnostics() { return dispatcher.diagnostics(); }
     public void withControls(Role role, UvcCameraManager.ControlAction action) { camera(role).withControls(action); }
     private UvcCameraManager.Camera camera(Role role) {
         if (role == null) throw new NullPointerException("role");

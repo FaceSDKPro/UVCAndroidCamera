@@ -1,5 +1,19 @@
 # 验证记录
 
+## HiFace 接入准备与配对诊断（2026-11-05）
+
+- 对照本机 HiFace Android SDK/Demo 0.8.6 的 `Yuv420Frame`、`processFrame`、搜索会话及 `InfraredFrame` 接口，新增 [HiFace 接入与本地调试](HIFACE_INTEGRATION.zh-CN.md)。只修改 UVC 仓库；HiFace 工作树未修改，页面中的 UVC 搜索入口仍是占位。
+- `DualCameraSession.pairingDiagnostics()` 返回线程安全快照：双路已接收、已派发帧对、待配对帧，以及覆盖、乱序、过期、时间差过大四类丢弃计数。Demo 显示累计及四类分项丢弃数；本地交付包包含接入文档。
+- 本地 **18 项 Java 单元测试通过**，覆盖慢消费者覆盖、乱序/过期/时间差丢弃计数；源码 Demo 与设备诊断 APK 的 R8 构建通过。ARM 双 ABI `prepareSdk` 构建、Lint 与内置 AAR/ELF 审计通过；Demo 再从本地 Maven AAR 单独构建通过。`git diff --check` 通过。
+- 未在 HiFace 应用内编译或运行，未执行本轮真机双目采集、IR 人脸定位/同人关联或活体验收；没有触发 CI/CD、远端发布或部署。同一 0.3.0 坐标仅作本地候选；将新增 API 对外发布前需使用新版本号。
+
+## SDK 结构与接口整理（2026-11-05）
+
+- 将双目会话和低层管理器重复的 USB 摄像头识别、枚举、排序收敛到包内 `UvcDevices`；保留 `UvcCameraManager.isCamera()` 公开入口。无 USB 服务时只枚举返回空列表，管理器构造时明确报错。
+- `UvcCameraManager.open()` 在入队前拒绝失效的预览 Surface，并在实际启动时继续复查。`DualCameraConfig` 增加 `forStreams()` 和返回新对象的 `withPairingLimits()`，保留原有构造函数；Demo 与中英文接入示例改用新调用方式。
+- 本地 **18 项 SDK Java 单元测试、两个模块的 Release Lint、源码与本地 Maven AAR 消费 Demo 的 R8 构建通过**。AAR 公开方法与旧构造函数已核对；源码审计通过。AAR 926,654 字节，20 个原生库合计 1,892,700 字节；20 项 ELF 与 20 项 APK 原生库 16 KB 对齐检查通过。
+- 本轮未做设备运行验收，也未发布 SDK 或触发 CI/CD。SDK 坐标仍为 0.3.0；将此 API 变更向外发布时应使用新版本，避免 Maven 缓存混入不同字节。
+
 ## UVCCamera 模块迁移与重新构建（2026-11-04）
 
 - 同步并保留用户删除的 README 内容和根 NOTICE；主说明缩为中英文各 33 行，中文移到 `docs/README.zh-CN.md`，英文逐段对应。模块和目录改为 `UVCCamera`，同步 Gradle 依赖、脚本、打包和手动工作流路径；CI/CD 未触发。清理失效模块缓存，旧 0.2.0 生成包移到仓库外保留。

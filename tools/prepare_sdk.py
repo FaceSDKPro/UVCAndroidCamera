@@ -86,7 +86,8 @@ def main():
                      'docs/UPSTREAM.md', 'docs/NATIVE_BUILD.md',
                      'docs/PERFORMANCE.md', 'docs/PERFORMANCE.zh-CN.md', 'docs/VALIDATION.md',
                      'docs/SDK_INTEGRATION.md', 'docs/SDK_INTEGRATION.zh-CN.md',
-                     'docs/images/dual-preview-landscape.png']:
+                     'docs/HIFACE_INTEGRATION.zh-CN.md',
+                     'docs/images/dual-preview-landscape.png', 'docs/images/apk-download-qr.png']:
             copy(ROOT / name, stage / name)
         # Standalone example builds against the packaged Maven AAR; no :UVCCamera source project exists here.
         demo = stage / 'demo-source'

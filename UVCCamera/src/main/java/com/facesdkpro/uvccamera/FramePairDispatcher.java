@@ -25,6 +25,8 @@ final class FramePairDispatcher implements AutoCloseable {
     private final ScheduledThreadPoolExecutor worker;
     private Slot rgb, ir;
     private long pairId, lastStart, lastRgbArrival = Long.MIN_VALUE, lastIrArrival = Long.MIN_VALUE;
+    private long rgbFrames, irFrames, replacedRgb, replacedIr, outOfOrderRgb, outOfOrderIr;
+    private long expiredRgb, expiredIr, skewRgb, skewIr;
     private boolean closed, scheduled;
 
     FramePairDispatcher(long sessionId, DualCameraConfig config, Clock clock,
@@ -49,11 +51,17 @@ final class FramePairDispatcher implements AutoCloseable {
             if (frame.width != stream.width || frame.height != stream.height || frame.pixelFormat != stream.pixelFormat)
                 throw new IllegalArgumentException("Frame does not match its role's configured format");
             long previous = isRgb ? lastRgbArrival : lastIrArrival;
-            if (frame.arrivalTimeNanos <= previous) return;
+            if (frame.arrivalTimeNanos <= previous) {
+                if (isRgb) outOfOrderRgb++; else outOfOrderIr++;
+                return;
+            }
             if (isRgb) lastRgbArrival = frame.arrivalTimeNanos; else lastIrArrival = frame.arrivalTimeNanos;
             ArrayDeque<Slot> pool = isRgb ? rgbPool : irPool;
             Slot old = isRgb ? rgb : ir;
-            if (old != null) pool.add(old);
+            if (old != null) {
+                pool.add(old);
+                if (isRgb) replacedRgb++; else replacedIr++;
+            }
             if (isRgb) rgb = null; else ir = null;
             Slot slot = pool.removeFirst();
             ByteBuffer source = frame.pixels();
@@ -68,6 +76,7 @@ final class FramePairDispatcher implements AutoCloseable {
             }
             catch (RuntimeException | Error error) { pool.add(slot); throw error; }
             slot.sequence = frame.sequence; slot.arrival = frame.arrivalTimeNanos;
+            if (isRgb) rgbFrames++; else irFrames++;
             if (isRgb) rgb = slot; else ir = slot;
             scheduleLocked();
         }
@@ -83,22 +92,23 @@ final class FramePairDispatcher implements AutoCloseable {
 
     private void deliver() {
         Slot a, b;
+        long deliveredId;
         synchronized (lock) {
             if (closed) { scheduled = false; return; }
             long now = clock.now(), maxAge = TimeUnit.MILLISECONDS.toNanos(config.maxFrameAgeMillis);
-            if (rgb != null && (now < rgb.arrival || now - rgb.arrival > maxAge)) { rgbPool.add(rgb); rgb = null; }
-            if (ir != null && (now < ir.arrival || now - ir.arrival > maxAge)) { irPool.add(ir); ir = null; }
+            if (rgb != null && (now < rgb.arrival || now - rgb.arrival > maxAge)) { rgbPool.add(rgb); rgb = null; expiredRgb++; }
+            if (ir != null && (now < ir.arrival || now - ir.arrival > maxAge)) { irPool.add(ir); ir = null; expiredIr++; }
             if (rgb == null || ir == null) { scheduled = false; return; }
             if (Math.abs(rgb.arrival - ir.arrival) > TimeUnit.MILLISECONDS.toNanos(config.maxPairSkewMillis)) {
-                if (rgb.arrival < ir.arrival) { rgbPool.add(rgb); rgb = null; }
-                else { irPool.add(ir); ir = null; }
+                if (rgb.arrival < ir.arrival) { rgbPool.add(rgb); rgb = null; skewRgb++; }
+                else { irPool.add(ir); ir = null; skewIr++; }
                 scheduled = false; return;
             }
-            a = rgb; b = ir; rgb = null; ir = null; lastStart = now;
+            a = rgb; b = ir; rgb = null; ir = null; lastStart = now; deliveredId = ++pairId;
         }
         Throwable error = null;
         try {
-            consumer.accept(new FramePair(sessionId, ++pairId,
+            consumer.accept(new FramePair(sessionId, deliveredId,
                     new CameraFrame(a.pixels.asReadOnlyBuffer(), config.rgb, config.rgbRotationDegrees, a.sequence, a.arrival),
                     new CameraFrame(b.pixels.asReadOnlyBuffer(), config.ir, config.irRotationDegrees, b.sequence, b.arrival)));
         } catch (RuntimeException | Error problem) { error = problem; }
@@ -111,6 +121,14 @@ final class FramePairDispatcher implements AutoCloseable {
         }
         if (error != null) {
             close(); failure.accept(error);
+        }
+    }
+
+    PairingDiagnostics diagnostics() {
+        synchronized (lock) {
+            return new PairingDiagnostics(sessionId, rgbFrames, irFrames, pairId,
+                    replacedRgb, replacedIr, outOfOrderRgb, outOfOrderIr,
+                    expiredRgb, expiredIr, skewRgb, skewIr, rgb != null, ir != null);
         }
     }
 

@@ -1,7 +1,6 @@
 package com.facesdkpro.uvccamera;
 
 import android.content.Context;
-import android.hardware.usb.UsbConstants;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbManager;
 import android.os.Handler;
@@ -62,10 +61,12 @@ public final class UvcCameraManager implements AutoCloseable {
     /** Fallback device scan interval: 0 disables polling; broadcasts and the initial scan remain active. */
     public UvcCameraManager(Context context, Listener listener, long devicePollMillis) {
         if (devicePollMillis != 0 && devicePollMillis < 1000) throw new IllegalArgumentException("Device polling must be 0 or >= 1000 ms");
+        if (context == null) throw new NullPointerException("context");
         if (listener == null) throw new NullPointerException("listener");
         this.listener = listener;
         Context app = context.getApplicationContext();
         usb = (UsbManager) app.getSystemService(Context.USB_SERVICE);
+        if (usb == null) throw new IllegalStateException("USB service unavailable");
         thread.start(); worker = new Handler(thread.getLooper());
         monitor = new USBMonitor(app, new USBMonitor.OnDeviceConnectListener() {
             public void onAttach(UsbDevice device) {
@@ -100,30 +101,21 @@ public final class UvcCameraManager implements AutoCloseable {
     }
 
     public static boolean isCamera(UsbDevice device) {
-        if (device == null) return false;
-        if (device.getDeviceClass() == UsbConstants.USB_CLASS_VIDEO) return true;
-        for (int i = 0; i < device.getInterfaceCount(); i++) {
-            if (device.getInterface(i).getInterfaceClass() == UsbConstants.USB_CLASS_VIDEO) return true;
-        }
-        return false;
+        return UvcDevices.isCamera(device);
     }
 
     /** Current UVC devices. Match role by VID/PID or user selection, never enumeration order. */
     public List<UsbDevice> devices() {
-        List<UsbDevice> result = new ArrayList<>();
-        if (!closed.get()) for (UsbDevice device : usb.getDeviceList().values()) {
-            if (isCamera(device)) result.add(device);
-        }
-        Collections.sort(result, (a, b) -> a.getDeviceName().compareTo(b.getDeviceName()));
-        return Collections.unmodifiableList(result);
+        return closed.get() ? Collections.emptyList() : UvcDevices.list(usb);
     }
 
-    /** Surface may be null for analysis only. A supplied Surface stays owned by the caller. */
+    /** Surface may be null for analysis only. Invalid Surfaces fail before enqueueing; ownership stays with the caller. */
     public Camera open(UsbDevice device, StreamConfig config, Surface preview, FrameListener frames) {
         if (closed.get()) throw new IllegalStateException("Manager closed");
         if (!isCamera(device)) throw new IllegalArgumentException("Device has no UVC interface");
         if (config == null) throw new NullPointerException("config");
         if (frames == null && preview == null) throw new IllegalArgumentException("A frame listener or preview is required");
+        if (preview != null && !preview.isValid()) throw new IllegalArgumentException("Preview Surface is invalid");
         Camera camera = new Camera(device, config, preview, frames);
         boolean accepted = worker.post(() -> {
             if (closed.get() || camera.closed.get()) { camera.closed.set(true); return; }

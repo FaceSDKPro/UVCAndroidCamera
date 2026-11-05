@@ -22,6 +22,7 @@ import com.facesdkpro.uvccamera.DualCameraConfig;
 import com.facesdkpro.uvccamera.DualCameraSession;
 import com.facesdkpro.uvccamera.FramePair;
 import com.facesdkpro.uvccamera.Nv21Planes;
+import com.facesdkpro.uvccamera.PairingDiagnostics;
 import com.facesdkpro.uvccamera.PreviewTransform;
 import com.facesdkpro.uvccamera.StreamConfig;
 import com.serenegiant.usb.UVCCamera;
@@ -31,7 +32,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicLong;
 
-/** Standalone camera SDK consumer; camera pixels are never saved by this demonstration. */
+/** 独立 SDK 接入演示：消费双目帧，不保存图像或生成识别结果。 */
 public final class SdkDemoActivity extends Activity {
     private final Handler main = new Handler(Looper.getMainLooper());
     private final Spinner[] selectors = new Spinner[2];
@@ -49,6 +50,7 @@ public final class SdkDemoActivity extends Activity {
     private DemoUi ui;
     private DemoUi.PreviewCard previewCard;
     private TextView status;
+    private TextView pairingDetails;
     private Button open, stop;
     private ImageButton refresh;
     private TextureView preview;
@@ -64,27 +66,28 @@ public final class SdkDemoActivity extends Activity {
                 public void run() {
                     DualCameraSession current = session;
                     long now = android.os.SystemClock.elapsedRealtimeNanos();
-                    long rgb =
-                            current == null
-                                    ? 0
-                                    : current.receivedFrames(DualCameraSession.Role.RGB);
-                    long
-                            ir =
-                                    current == null
-                                            ? 0
-                                            : current.receivedFrames(DualCameraSession.Role.IR),
-                            n = pairs.get();
+                    long rgb = current == null ? 0 : current.receivedFrames(DualCameraSession.Role.RGB);
+                    long ir = current == null ? 0 : current.receivedFrames(DualCameraSession.Role.IR);
+                    long n = pairs.get();
                     double seconds = previousTick == 0 ? 1 : (now - previousTick) / 1e9;
-                    if (current != null && !current.isClosed() && n > 0) {
+                    if (current != null && !current.isClosed()) {
+                        PairingDiagnostics pairing = current.pairingDiagnostics();
                         metrics[0].set(
                                 number(Math.max(0, rgb - previousRgb) / seconds),
-                                rgb + " 帧 · " + pairWidth.get() + "×" + pairHeight.get());
+                                rgb + " 帧" + (n == 0 ? "" : " · " + pairWidth.get() + "×" + pairHeight.get()));
                         metrics[1].set(
                                 number(Math.max(0, ir - previousIr) / seconds),
-                                ir + " 帧 · " + irWidth.get() + "×" + irHeight.get());
+                                ir + " 帧" + (n == 0 ? "" : " · " + irWidth.get() + "×" + irHeight.get()));
                         metrics[2].set(
-                                number(Math.max(0, n - previousPairs) / seconds), "累计 " + n + " 对");
-                        metrics[3].set(number(skewMicros.get() / 1000.0), "回调到达时间差");
+                                number(Math.max(0, n - previousPairs) / seconds),
+                                "累计 " + n + " 对 · 丢弃 " + pairing.discardedFrames() + " 帧");
+                        metrics[3].set(n == 0 ? "—" : number(skewMicros.get() / 1000.0), "回调到达时间差");
+                        DemoUi.setText(pairingDetails,
+                                "配对丢弃  覆盖 " + pairing.replacedRgb + "/" + pairing.replacedIr
+                                        + " · 乱序 " + pairing.outOfOrderRgb + "/" + pairing.outOfOrderIr
+                                        + " · 过期 " + pairing.expiredRgb + "/" + pairing.expiredIr
+                                        + " · 时间差 " + pairing.skewRgb + "/" + pairing.skewIr
+                                        + "  (RGB/IR)");
                         DemoUi.setText(
                                 previewCard.meta,
                                 "输出 "
@@ -226,7 +229,7 @@ public final class SdkDemoActivity extends Activity {
             card.addView(head);
             ui.gap(card, 14);
             selectors[i] = ui.spinner(role + " 设备");
-            card.addView(ui.field("USB 设备", selectors[i]));
+            card.addView(ui.deviceField(selectors[i]));
             ui.gap(card, 14);
             settings[i] = new CaptureSettingsView(this, role);
             card.addView(settings[i]);
@@ -272,11 +275,14 @@ public final class SdkDemoActivity extends Activity {
             group.addView(row);
             if (start + columns < 4) ui.gap(group, 8);
         }
+        pairingDetails = ui.label("配对诊断 · 等待采集", 11, ui.muted);
+        group.addView(pairingDetails, ui.margin(-1, -2, 4, 8, 4, 0));
         return group;
     }
 
     private void clearMetrics() {
         for (DemoUi.Metric metric : metrics) metric.set("—", "等待采集");
+        if (pairingDetails != null) DemoUi.setText(pairingDetails, "配对诊断 · 等待采集");
     }
 
     private void bindPreview() {
@@ -299,6 +305,7 @@ public final class SdkDemoActivity extends Activity {
                     public boolean onSurfaceTextureDestroyed(SurfaceTexture texture) {
                         Surface retired = surface;
                         surface = null;
+                        // 双目会话清理完成前，Surface/Texture 仍归旧会话使用。
                         Runnable release =
                                 () -> {
                                     if (retired != null) retired.release();
@@ -357,14 +364,9 @@ public final class SdkDemoActivity extends Activity {
         StreamConfig rgbConfig = settings[0].config(UVCCamera.PIXEL_FORMAT_NV21),
                 irConfig = settings[1].config(UVCCamera.PIXEL_FORMAT_GRAY8);
         appliedConfig =
-                new DualCameraConfig(
-                        rgbConfig,
-                        irConfig,
-                        50,
-                        150,
-                        PAIR_RATES[pairRate.getSelectedItemPosition()],
-                        settings[0].rotationDegrees(),
-                        settings[1].rotationDegrees());
+                DualCameraConfig.forStreams(rgbConfig, irConfig)
+                        .withPairingLimits(50, 150, PAIR_RATES[pairRate.getSelectedItemPosition()])
+                        .withRotations(settings[0].rotationDegrees(), settings[1].rotationDegrees());
         fitPreview();
         pairs.set(0);
         skewMicros.set(0);
@@ -422,6 +424,7 @@ public final class SdkDemoActivity extends Activity {
 
                                 @Override
                                 public void onClosed(DualCameraSession source) {
+                                    // 两路 USB、native 和在途帧消费者均已排空，才允许重开。
                                     if (session == source) {
                                         session = null;
                                         main.removeCallbacks(tick);
@@ -454,10 +457,7 @@ public final class SdkDemoActivity extends Activity {
         }
     }
 
-    /**
-     * Synchronous algorithm integration point. The demo validates frames without producing face
-     * results.
-     */
+    /** 算法接入点：帧只在本次回调内有效；这里仅校验格式并更新统计。 */
     private void consumePair(FramePair pair) {
         Nv21Planes rgb = pair.rgbPlanes();
         if (!rgb.y().isDirect() || pair.ir.luma().remaining() != pair.ir.width * pair.ir.height)
@@ -473,6 +473,7 @@ public final class SdkDemoActivity extends Activity {
     private void applySettings() {
         if (session == null) startSession();
         else {
+            // 先关闭旧会话；onClosed 再按新参数创建，避免两组设备同时占用。
             restartPending = true;
             open.setEnabled(false);
             session.close();

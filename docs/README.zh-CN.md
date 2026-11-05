@@ -31,3 +31,9 @@ implementation project(':UVCCamera')
 ```
 
 详细调用和构建步骤见 [SDK 接入说明](SDK_INTEGRATION.zh-CN.md)；原生配置见 [构建说明](NATIVE_BUILD.md)。
+
+## APK 下载
+
+[下载 APK](https://www.helloface.dev)
+
+![APK 下载二维码](images/apk-download-qr.png)

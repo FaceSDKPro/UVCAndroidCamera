@@ -4,6 +4,9 @@ import com.serenegiant.usb.UVCCamera;
 
 /** Exact RGB NV21 / IR GRAY8 modes and bounded software pairing limits. No liveness policy. */
 public final class DualCameraConfig {
+    private static final int DEFAULT_SKEW_MILLIS = 50;
+    private static final int DEFAULT_AGE_MILLIS = 150;
+    private static final int DEFAULT_PAIRS_PER_SECOND = 15;
     public final StreamConfig rgb, ir;
     public final int maxPairSkewMillis, maxFrameAgeMillis, maxPairsPerSecond;
     public final int rgbRotationDegrees, irRotationDegrees;
@@ -40,11 +43,23 @@ public final class DualCameraConfig {
         return new DualCameraConfig(rgb, ir, maxPairSkewMillis, maxFrameAgeMillis, maxPairsPerSecond, rgbDegrees, irDegrees);
     }
 
+    /** Return an immutable copy with new software pairing limits, preserving both rotations. */
+    public DualCameraConfig withPairingLimits(int skewMillis, int ageMillis, int pairsPerSecond) {
+        return new DualCameraConfig(rgb, ir, skewMillis, ageMillis, pairsPerSecond,
+                rgbRotationDegrees, irRotationDegrees);
+    }
+
+    /** Pair caller-selected RGB NV21 and IR GRAY8 streams with the default software limits. */
+    public static DualCameraConfig forStreams(StreamConfig rgb, StreamConfig ir) {
+        return new DualCameraConfig(rgb, ir, DEFAULT_SKEW_MILLIS, DEFAULT_AGE_MILLIS,
+                DEFAULT_PAIRS_PER_SECOND);
+    }
+
     /** 640x480 MJPEG, capture 30 FPS, deliver at most 15 pairs/s, 50 ms arrival skew, 150 ms age.
      * These software limits are starting points, not calibrated sensor synchronization limits. */
     public static DualCameraConfig defaults() {
-        return new DualCameraConfig(StreamConfig.defaults(),
+        return forStreams(StreamConfig.defaults(),
                 new StreamConfig(640, 480, 30, UVCCamera.UVC_VS_FRAME_MJPEG,
-                        UVCCamera.PIXEL_FORMAT_GRAY8, 0), 50, 150, 15);
+                        UVCCamera.PIXEL_FORMAT_GRAY8, 0));
     }
 }

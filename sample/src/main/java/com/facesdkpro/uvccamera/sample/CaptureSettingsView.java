@@ -7,7 +7,7 @@ import android.widget.Spinner;
 import com.facesdkpro.uvccamera.StreamConfig;
 import com.serenegiant.usb.UVCCamera;
 
-/** Local controls for exact SDK capture requests. */
+/** 构造明确的采集请求；实际支持情况由设备协商决定。 */
 final class CaptureSettingsView extends LinearLayout {
     final Spinner resolution, fps, transport, rotation;
     private static final int[] WIDTH = {640, 1280, 1920},
@@ -43,6 +43,7 @@ final class CaptureSettingsView extends LinearLayout {
     }
 
     StreamConfig config(int pixelFormat) {
+        // UI 选项只生成请求参数，不表示摄像头一定支持该组合。
         int index = resolution.getSelectedItemPosition();
         return new StreamConfig(
                 WIDTH[index],

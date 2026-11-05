@@ -8,7 +8,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 
-/** Demo role binding shared by both screens. USB enumeration order never implies RGB or IR. */
+/** 两个演示页面共用的设备选择；USB 枚举顺序不决定 RGB/IR 角色。 */
 final class DeviceSelectors {
     private final DemoUi ui;
     private final Spinner[] controls;
@@ -22,6 +22,7 @@ final class DeviceSelectors {
     }
 
     void refresh(List<UsbDevice> connected, String[] restored) {
+        // 热插拔后按设备名恢复；无历史选择时按已知 VID/PID 预选。
         String[] previous = restored != null && restored.length == 2 ? restored : selectedNames();
         List<String> labels = new ArrayList<>(connected.size());
         for (UsbDevice device : connected) {
@@ -42,7 +43,7 @@ final class DeviceSelectors {
             List<String> choices = new ArrayList<>(labels.size() + 1);
             choices.add(role == 0 ? "请选择 RGB 摄像头" : "请选择 IR 摄像头");
             choices.addAll(labels);
-            ui.items(controls[role], choices);
+            ui.deviceItems(controls[role], choices);
             int selected = 0;
             for (int i = 0; i < devices.size(); i++) {
                 UsbDevice device = devices.get(i);
@@ -73,7 +74,7 @@ final class DeviceSelectors {
         return names;
     }
 
-    /** Restore by USB identity: hotplug may change adapter positions while a dialog is open. */
+    /** 按 USB 设备名恢复，避免热插拔后沿用旧列表下标。 */
     void restore(int role, String deviceName) {
         int selected = 0;
         for (int i = 0; i < devices.size(); i++) {

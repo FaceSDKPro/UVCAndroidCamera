@@ -2,7 +2,7 @@
 
 本 SDK 提供独立 USB RGB/IR 摄像头管理、预览、设备控制和有界软件帧配对。
 Demo 展示真实的 NV21 / GRAY8 采集与消费接口，不包含 HelloFace SDK、模型、人脸识别或活体判断。
-本次准备没有修改或接入 HelloFace 工程。
+HiFace 的具体接入步骤与调试指标见 [HiFace Android 接入与本地调试](HIFACE_INTEGRATION.zh-CN.md)。
 
 ## 获取 SDK 与 Demo
 
@@ -105,7 +105,8 @@ StreamConfig rgb = new StreamConfig(1280, 720, 30,
     UVCCamera.UVC_VS_FRAME_MJPEG, UVCCamera.PIXEL_FORMAT_NV21, 0);
 StreamConfig ir = new StreamConfig(640, 480, 15,
     UVCCamera.UVC_VS_FRAME_UNCOMPRESSED, UVCCamera.PIXEL_FORMAT_GRAY8, 0);
-DualCameraConfig config = new DualCameraConfig(rgb, ir, 50, 150, 15)
+DualCameraConfig config = DualCameraConfig.forStreams(rgb, ir)
+    .withPairingLimits(50, 150, 15)
     .withRotations(90, 270); // 两路分别顺时针旋转
 
 // 等 TextureView 布局完成后、以及尺寸变化时更新。
@@ -115,6 +116,8 @@ rgbTextureView.setTransform(PreviewTransform.fitCenter(
     config.rgbRotationDegrees));
 // 用 config 创建 DualCameraSession；其 Surface 预览仍是原始采集方向，以上矩阵负责显示旋转。
 ```
+
+`forStreams()` 使用默认配对限制；`withPairingLimits()` 和 `withRotations()` 返回新配置，原配置不变。旧的构造函数仍可使用。
 
 仅允许 0/90/180/270 度。预览使用 TextureView 内容变换，不旋转显示用的整帧 CPU 缓冲；
 调用方式见 [Android TextureView](https://developer.android.com/reference/android/view/TextureView)。

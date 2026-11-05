@@ -23,7 +23,7 @@ import android.widget.TextView;
 
 import java.util.List;
 
-/** Native-view components shared by both developer screens. No additional UI runtime dependency. */
+/** 两个演示页面共用的原生 View 样式与组件。 */
 final class DemoUi {
     final Context context;
     final int background, surface, input, border, text, muted, accent, rgb, ir, error;
@@ -117,6 +117,12 @@ final class DemoUi {
         spinner.setAdapter(a);
     }
 
+    void deviceItems(Spinner spinner, List<String> values) {
+        ArrayAdapter<String> a = new ArrayAdapter<>(context, R.layout.spinner_device_value, values);
+        a.setDropDownViewResource(R.layout.spinner_device_choice);
+        spinner.setAdapter(a);
+    }
+
     void items(Spinner spinner, String[] values) {
         items(spinner, java.util.Arrays.asList(values));
     }
@@ -124,6 +130,16 @@ final class DemoUi {
     LinearLayout field(String caption, View control) {
         LinearLayout v = column();
         v.addView(label(caption, 12, muted));
+        gap(v, 6);
+        v.addView(control, new LinearLayout.LayoutParams(-1, -2));
+        return v;
+    }
+
+    LinearLayout deviceField(View control) {
+        LinearLayout v = column();
+        TextView caption = label("选择 USB 设备", 12, 0xffffffff);
+        caption.setTypeface(Typeface.create("sans-serif", Typeface.BOLD));
+        v.addView(caption);
         gap(v, 6);
         v.addView(control, new LinearLayout.LayoutParams(-1, -2));
         return v;

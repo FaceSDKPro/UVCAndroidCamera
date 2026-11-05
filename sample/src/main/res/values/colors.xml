@@ -1,5 +1,6 @@
 <resources>
     <color name="demo_background">#0B1220</color>
+    <color name="launcher_background">#F4E9D1</color>
     <color name="demo_surface">#131E30</color>
     <color name="demo_input">#0D1728</color>
     <color name="demo_border">#27364D</color>

@@ -1,0 +1,8 @@
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:minHeight="48dp" android:gravity="center_vertical"
+    android:paddingStart="12dp" android:paddingEnd="36dp"
+    android:paddingTop="10dp" android:paddingBottom="10dp"
+    android:fontFamily="sans-serif" android:textStyle="bold" android:textSize="13sp"
+    android:textColor="#FFFFFF" android:singleLine="true"
+    android:ellipsize="end" android:includeFontPadding="false" />
