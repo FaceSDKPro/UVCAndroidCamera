@@ -2,13 +2,17 @@ package com.facesdkpro.uvccamera.sample;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
+import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.SurfaceTexture;
 import android.hardware.usb.UsbDevice;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 import android.view.Surface;
 import android.view.TextureView;
 import android.widget.Button;
@@ -17,7 +21,9 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.TextView;
+import android.widget.Toast;
 
+import com.facesdkpro.uvccamera.CameraFailure;
 import com.facesdkpro.uvccamera.DualCameraConfig;
 import com.facesdkpro.uvccamera.DualCameraSession;
 import com.facesdkpro.uvccamera.FramePair;
@@ -74,29 +80,23 @@ public final class SdkDemoActivity extends Activity {
                         PairingDiagnostics pairing = current.pairingDiagnostics();
                         metrics[0].set(
                                 number(Math.max(0, rgb - previousRgb) / seconds),
-                                rgb + " 帧" + (n == 0 ? "" : " · " + pairWidth.get() + "×" + pairHeight.get()));
+                                n == 0 ? getString(R.string.frame_count, rgb)
+                                        : getString(R.string.frame_count_size, rgb, pairWidth.get(), pairHeight.get()));
                         metrics[1].set(
                                 number(Math.max(0, ir - previousIr) / seconds),
-                                ir + " 帧" + (n == 0 ? "" : " · " + irWidth.get() + "×" + irHeight.get()));
+                                n == 0 ? getString(R.string.frame_count, ir)
+                                        : getString(R.string.frame_count_size, ir, irWidth.get(), irHeight.get()));
                         metrics[2].set(
                                 number(Math.max(0, n - previousPairs) / seconds),
-                                "累计 " + n + " 对 · 丢弃 " + pairing.discardedFrames() + " 帧");
-                        metrics[3].set(n == 0 ? "—" : number(skewMicros.get() / 1000.0), "回调到达时间差");
+                                getString(R.string.pair_counts, n, pairing.discardedFrames()));
+                        metrics[3].set(n == 0 ? "—" : number(skewMicros.get() / 1000.0), getString(R.string.callback_skew));
                         DemoUi.setText(pairingDetails,
-                                "配对丢弃  覆盖 " + pairing.replacedRgb + "/" + pairing.replacedIr
-                                        + " · 乱序 " + pairing.outOfOrderRgb + "/" + pairing.outOfOrderIr
-                                        + " · 过期 " + pairing.expiredRgb + "/" + pairing.expiredIr
-                                        + " · 时间差 " + pairing.skewRgb + "/" + pairing.skewIr
-                                        + "  (RGB/IR)");
-                        DemoUi.setText(
-                                previewCard.meta,
-                                "输出 "
-                                        + pairWidth.get()
-                                        + "×"
-                                        + pairHeight.get()
-                                        + " · NV21 · "
-                                        + appliedConfig.rgbRotationDegrees
-                                        + "°");
+                                getString(R.string.pairing_drops, pairing.replacedRgb, pairing.replacedIr,
+                                        pairing.outOfOrderRgb, pairing.outOfOrderIr, pairing.expiredRgb,
+                                        pairing.expiredIr, pairing.skewRgb, pairing.skewIr));
+                        if (n > 0) DemoUi.setText(previewCard.meta,
+                                getString(R.string.capture_output, pairWidth.get(), pairHeight.get(),
+                                        appliedConfig.rgbRotationDegrees));
                     } else clearMetrics();
                     previousRgb = rgb;
                     previousIr = ir;
@@ -122,17 +122,17 @@ public final class SdkDemoActivity extends Activity {
         LinearLayout screen = ui.column();
         Button diagnostic =
                 ui.button(
-                        "双路预览",
+                        getString(R.string.dual_preview),
                         R.drawable.ic_grid,
                         false,
                         () -> startActivity(new Intent(this, MainActivity.class)));
-        diagnostic.setContentDescription("设备预览与控制演示");
-        screen.addView(ui.header("UVC Camera", "RGB + IR · 双目采集控制台", diagnostic));
-        status = ui.status("选择两个独立 USB 摄像头后开始采集");
+        diagnostic.setContentDescription(getString(R.string.dual_preview_accessibility));
+        screen.addView(ui.header(getString(R.string.app_name), getString(R.string.capture_subtitle), diagnostic));
+        status = ui.status(getString(R.string.select_two_cameras));
         screen.addView(status, ui.margin(-1, -2, 20, 0, 20, 14));
         LinearLayout controls = buildControls(!compact);
         deviceSelectors = new DeviceSelectors(ui, selectors);
-        previewCard = ui.new PreviewCard("RGB 可见光预览", "NV21 · IR 灰度帧独立采集", ui.rgb);
+        previewCard = ui.new PreviewCard(getString(R.string.rgb_preview), getString(R.string.independent_gray8), ui.rgb);
         preview = previewCard.texture;
         bindPreview();
         LinearLayout stats = buildMetrics(wide);
@@ -174,7 +174,7 @@ public final class SdkDemoActivity extends Activity {
         footer.setPadding(ui.dp(20), ui.dp(14), ui.dp(20), ui.dp(14));
         open =
                 ui.button(
-                        "开始采集",
+                        getString(R.string.start_capture),
                         0,
                         true,
                         () -> {
@@ -182,13 +182,13 @@ public final class SdkDemoActivity extends Activity {
                                     == PackageManager.PERMISSION_GRANTED) applySettings();
                             else requestPermissions(new String[] {Manifest.permission.CAMERA}, 1);
                         });
-        stop = ui.button("停止", R.drawable.ic_stop, false, this::stopSession);
+        stop = ui.button(getString(R.string.stop), R.drawable.ic_stop, false, this::stopSession);
         stop.setEnabled(false);
         if (wide) {
             LinearLayout caption = ui.column();
             caption.addView(ui.strong("RGB NV21  +  IR GRAY8", 13, ui.text));
             ui.gap(caption, 4);
-            caption.addView(ui.label("参数修改后，通过应用并重启生效", 12, ui.muted));
+            caption.addView(ui.label(getString(R.string.restart_to_apply), 12, ui.muted));
             footer.addView(caption, new LinearLayout.LayoutParams(0, -2, 1));
             footer.addView(open, new LinearLayout.LayoutParams(ui.dp(200), -2));
         } else footer.addView(open, new LinearLayout.LayoutParams(0, -2, 1));
@@ -207,8 +207,9 @@ public final class SdkDemoActivity extends Activity {
     private LinearLayout buildControls(boolean scrollSettings) {
         LinearLayout panel = ui.column();
         LinearLayout heading = ui.row();
-        heading.addView(ui.strong("采集设置", 18, ui.text), new LinearLayout.LayoutParams(0, -2, 1));
-        refresh = ui.iconButton("刷新设备", R.drawable.ic_refresh, this::refreshDevices);
+        heading.addView(ui.strong(getString(R.string.capture_settings), 18, ui.text),
+                new LinearLayout.LayoutParams(0, -2, 1));
+        refresh = ui.iconButton(getString(R.string.refresh_devices), R.drawable.ic_refresh, this::refreshDevices);
         heading.addView(refresh, new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
         panel.addView(heading);
         ui.gap(panel, 10);
@@ -223,12 +224,12 @@ public final class SdkDemoActivity extends Activity {
             head.addView(mark);
             ui.gap(head, 10);
             head.addView(
-                    ui.strong(i == 0 ? "可见光摄像头" : "近红外摄像头", 15, ui.text),
+                    ui.strong(i == 0 ? getString(R.string.rgb_camera) : getString(R.string.ir_camera), 15, ui.text),
                     new LinearLayout.LayoutParams(0, -2, 1));
             head.addView(ui.label(i == 0 ? "NV21" : "GRAY8", 11, ui.muted));
             card.addView(head);
             ui.gap(card, 14);
-            selectors[i] = ui.spinner(role + " 设备");
+            selectors[i] = ui.spinner(getString(R.string.device_for_role, role));
             card.addView(ui.deviceField(selectors[i]));
             ui.gap(card, 14);
             settings[i] = new CaptureSettingsView(this, role);
@@ -237,18 +238,22 @@ public final class SdkDemoActivity extends Activity {
             ui.gap(fields, 12);
         }
         LinearLayout pairing = ui.card();
-        pairRate = ui.spinner("帧对交付上限");
-        ui.items(pairRate, new String[] {"5 对/秒", "10 对/秒", "15 对/秒", "30 对/秒"});
+        pairRate = ui.spinner(getString(R.string.pair_rate_limit));
+        String[] rates = new String[PAIR_RATES.length];
+        for (int i = 0; i < rates.length; i++)
+            rates[i] = getString(R.string.pair_rate_option, PAIR_RATES[i]);
+        ui.items(pairRate, rates);
         pairRate.setSelection(2);
-        pairing.addView(ui.field("帧对交付上限", pairRate));
+        pairing.addView(ui.field(getString(R.string.pair_rate_limit), pairRate));
         ui.gap(pairing, 8);
-        pairing.addView(ui.label("独立于相机采集 FPS", 12, ui.muted));
+        pairing.addView(ui.label(getString(R.string.pair_rate_note), 12, ui.muted));
         fields.addView(pairing);
         ui.gap(fields, 12);
-        TextView hint = ui.label("修改后点击应用并重启。参数组合以设备支持为准。双路软件配对不代表同步曝光，本示例不输出活体结论。", 12, ui.muted);
+        TextView hint = ui.label(getString(R.string.capture_settings_hint), 12, ui.muted);
         hint.setLineSpacing(ui.dp(3), 1);
         fields.addView(hint);
-        ui.gap(fields, 4);
+        ui.gap(fields, 8);
+        fields.addView(ui.button(getString(R.string.privacy_policy), 0, false, this::showPrivacyPolicy));
         if (scrollSettings) {
             ScrollView scroll = new ScrollView(this);
             scroll.setFillViewport(false);
@@ -259,11 +264,29 @@ public final class SdkDemoActivity extends Activity {
         return panel;
     }
 
+    private void showPrivacyPolicy() {
+        AlertDialog.Builder dialog = new AlertDialog.Builder(this)
+                .setTitle(R.string.privacy_policy)
+                .setMessage(R.string.privacy_summary)
+                .setPositiveButton(android.R.string.ok, null);
+        String url = BuildConfig.PRIVACY_POLICY_URL;
+        if (!url.isEmpty()) {
+            dialog.setNeutralButton(R.string.privacy_open_online, (ignored, button) -> {
+                try {
+                    startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+                } catch (ActivityNotFoundException error) {
+                    Toast.makeText(this, R.string.privacy_browser_unavailable, Toast.LENGTH_SHORT).show();
+                }
+            });
+        }
+        dialog.show();
+    }
+
     private LinearLayout buildMetrics(boolean wide) {
-        metrics[0] = ui.new Metric("RGB 实时帧率", "FPS", ui.rgb);
-        metrics[1] = ui.new Metric("IR 实时帧率", "FPS", ui.ir);
-        metrics[2] = ui.new Metric("帧对速率", "对/秒", ui.accent);
-        metrics[3] = ui.new Metric("时间差", "ms", ui.text);
+        metrics[0] = ui.new Metric(getString(R.string.rgb_fps), "FPS", ui.rgb);
+        metrics[1] = ui.new Metric(getString(R.string.ir_fps), "FPS", ui.ir);
+        metrics[2] = ui.new Metric(getString(R.string.pair_rate), getString(R.string.pairs_per_second), ui.accent);
+        metrics[3] = ui.new Metric(getString(R.string.arrival_skew), "ms", ui.text);
         LinearLayout group = ui.column();
         int columns = wide ? 4 : 2;
         for (int start = 0; start < 4; start += columns) {
@@ -275,14 +298,14 @@ public final class SdkDemoActivity extends Activity {
             group.addView(row);
             if (start + columns < 4) ui.gap(group, 8);
         }
-        pairingDetails = ui.label("配对诊断 · 等待采集", 11, ui.muted);
+        pairingDetails = ui.label(getString(R.string.pairing_waiting), 11, ui.muted);
         group.addView(pairingDetails, ui.margin(-1, -2, 4, 8, 4, 0));
         return group;
     }
 
     private void clearMetrics() {
-        for (DemoUi.Metric metric : metrics) metric.set("—", "等待采集");
-        if (pairingDetails != null) DemoUi.setText(pairingDetails, "配对诊断 · 等待采集");
+        for (DemoUi.Metric metric : metrics) metric.set("—", getString(R.string.waiting_for_capture));
+        if (pairingDetails != null) DemoUi.setText(pairingDetails, getString(R.string.pairing_waiting));
     }
 
     private void bindPreview() {
@@ -342,7 +365,7 @@ public final class SdkDemoActivity extends Activity {
         if (!failed)
             ui.setStatus(
                     status,
-                    deviceSelectors.size() < 2 ? "等待连接 · 需要两个独立 UVC 摄像头" : "设备就绪 · RGB 与 IR 可分别配置",
+                    deviceSelectors.size() < 2 ? getString(R.string.waiting_for_two_cameras) : getString(R.string.devices_ready),
                     deviceSelectors.size() < 2 ? ui.muted : ui.accent);
     }
 
@@ -354,11 +377,11 @@ public final class SdkDemoActivity extends Activity {
         if (!visible || session != null) return;
         UsbDevice rgb = deviceSelectors.selected(0), ir = deviceSelectors.selected(1);
         if (rgb == null || ir == null || rgb.getDeviceName().equals(ir.getDeviceName())) {
-            ui.setStatus(status, "请为 RGB、IR 分别选择不同的摄像头", ui.error);
+            ui.setStatus(status, getString(R.string.select_distinct_cameras), ui.error);
             return;
         }
         if (surface == null || !surface.isValid()) {
-            ui.setStatus(status, "预览正在准备，请稍后开始采集", ui.ir);
+            ui.setStatus(status, getString(R.string.preview_preparing), ui.ir);
             return;
         }
         StreamConfig rgbConfig = settings[0].config(UVCCamera.PIXEL_FORMAT_NV21),
@@ -381,7 +404,7 @@ public final class SdkDemoActivity extends Activity {
         refresh.setEnabled(false);
         clearMetrics();
         previewCard.connecting();
-        ui.setStatus(status, "正在连接 · 请允许相机与 USB 设备访问", ui.ir);
+        ui.setStatus(status, getString(R.string.connecting_permissions), ui.ir);
         try {
             session =
                     new DualCameraSession(
@@ -395,30 +418,27 @@ public final class SdkDemoActivity extends Activity {
                                 @Override
                                 public void onReady(DualCameraSession source) {
                                     if (session == source && visible) {
-                                        ui.setStatus(status, "采集中 · RGB 与 IR 双路已连接", ui.accent);
-                                        previewCard.state(true, "NV21 · 等待首帧数据");
+                                        ui.setStatus(status, getString(R.string.dual_capture_active), ui.accent);
+                                        previewCard.state(true, getString(R.string.waiting_first_frame));
                                         open.setEnabled(true);
-                                        open.setText("应用并重启");
+                                        open.setText(getString(R.string.apply_restart));
                                     }
                                 }
 
                                 @Override
-                                public void onError(
-                                        DualCameraSession source, String message, Throwable cause) {
+                                public void onFailure(DualCameraSession source,
+                                        DualCameraSession.Role role, CameraFailure failure) {
                                     if (session == source) {
                                         failed = true;
                                         restartPending = false;
                                         open.setEnabled(false);
                                     }
                                     if (session == source && visible) {
-                                        ui.setStatus(
-                                                status,
-                                                message
-                                                        + (cause == null
-                                                                ? ""
-                                                                : " · " + cause.getMessage()),
-                                                ui.error);
-                                        previewCard.state(false, "采集已停止");
+                                        String message = ui.failureText(failure);
+                                        if (role != null)
+                                            message = getString(R.string.camera_error_role, role.name(), message);
+                                        ui.setStatus(status, message, ui.error);
+                                        previewCard.state(false, getString(R.string.capture_stopped));
                                     }
                                 }
 
@@ -429,13 +449,13 @@ public final class SdkDemoActivity extends Activity {
                                         session = null;
                                         main.removeCallbacks(tick);
                                         open.setEnabled(visible);
-                                        open.setText("开始采集");
+                                        open.setText(getString(R.string.start_capture));
                                         stop.setEnabled(false);
                                         refresh.setEnabled(true);
-                                        previewCard.state(false, "NV21 · IR 灰度帧独立采集");
+                                        previewCard.state(false, getString(R.string.independent_gray8));
                                         clearMetrics();
                                         if (visible && !failed)
-                                            ui.setStatus(status, "采集已停止 · 可调整参数后重新开始", ui.muted);
+                                            ui.setStatus(status, getString(R.string.capture_stopped_settings), ui.muted);
                                         if (restartPending && visible && !failed) {
                                             restartPending = false;
                                             main.post(SdkDemoActivity.this::startSession);
@@ -449,11 +469,12 @@ public final class SdkDemoActivity extends Activity {
             main.post(tick);
         } catch (RuntimeException error) {
             open.setEnabled(true);
-            open.setText("开始采集");
+            open.setText(getString(R.string.start_capture));
             stop.setEnabled(false);
             refresh.setEnabled(true);
-            previewCard.state(false, "采集未启动");
-            ui.setStatus(status, "打开失败 · " + error.getMessage(), ui.error);
+            previewCard.state(false, getString(R.string.capture_not_started));
+            Log.w("UvcDemo", "Could not open capture", error);
+            ui.setStatus(status, getString(R.string.open_failed), ui.error);
         }
     }
 
@@ -477,7 +498,7 @@ public final class SdkDemoActivity extends Activity {
             restartPending = true;
             open.setEnabled(false);
             session.close();
-            ui.setStatus(status, "正在切换 · 释放旧会话后应用新设置", ui.ir);
+            ui.setStatus(status, getString(R.string.applying_settings), ui.ir);
         }
     }
 
@@ -488,8 +509,8 @@ public final class SdkDemoActivity extends Activity {
             session.close();
             clearMetrics();
             stop.setEnabled(false);
-            previewCard.state(false, "正在释放采集资源");
-            if (visible) ui.setStatus(status, "正在停止采集…", ui.muted);
+            previewCard.state(false, getString(R.string.releasing_capture));
+            if (visible) ui.setStatus(status, getString(R.string.stopping_capture), ui.muted);
         }
     }
 
@@ -528,6 +549,6 @@ public final class SdkDemoActivity extends Activity {
         super.onRequestPermissionsResult(request, names, results);
         if (request != 1 || !visible) return;
         if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) applySettings();
-        else ui.setStatus(status, "需要相机权限才能开始采集", ui.error);
+        else ui.setStatus(status, getString(R.string.capture_permission_required), ui.error);
     }
 }

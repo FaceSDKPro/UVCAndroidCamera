@@ -7,7 +7,7 @@ import subprocess
 import time
 import uuid
 from device_check_common import output_directory, file_sha256, require_installed_apk, matching_report
-from run_device_checks import ROOT, PACKAGE, source_fingerprint
+from run_device_checks import ACTIVITY_NAMESPACE, ROOT, PACKAGE, source_fingerprint
 
 
 def main():
@@ -50,7 +50,8 @@ def main():
             run_id = str(uuid.uuid4())
             call('shell', 'am', 'force-stop', PACKAGE)
             thermal_before = call('shell', 'dumpsys', 'thermalservice')
-            cmd = ['shell', 'am', 'start', '-W', '-n', PACKAGE + '/.PerformanceProbeActivity', '--es', 'runId', run_id, '--ei', 'width', str(args.width), '--ei', 'height', str(args.height), '--ei', 'duration', str(args.duration), '--ei', 'format', str(args.format), '--ei', 'frameType', str(args.frame_type), '--ei', 'captureFps', str(args.capture_fps)]
+            component = f'{PACKAGE}/{ACTIVITY_NAMESPACE}.PerformanceProbeActivity'
+            cmd = ['shell', 'am', 'start', '-W', '-n', component, '--es', 'runId', run_id, '--ei', 'width', str(args.width), '--ei', 'height', str(args.height), '--ei', 'duration', str(args.duration), '--ei', 'format', str(args.format), '--ei', 'frameType', str(args.frame_type), '--ei', 'captureFps', str(args.capture_fps)]
             if args.verify_buffers:
                 cmd += ['--ez', 'verifyBuffers', 'true']
             if scenario in ('preview', 'preview-only'):

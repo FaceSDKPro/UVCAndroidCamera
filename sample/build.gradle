@@ -1,9 +1,37 @@
 plugins { id 'com.android.application' }
+
+def playPrivacyUrl = providers.gradleProperty('uvcPlayPrivacyUrl')
+    .orElse('https://www.helloface.dev/en/uvc-camera-privacy').get().trim()
+if (playPrivacyUrl) {
+    def uri = new URI(playPrivacyUrl)
+    if (uri.scheme != 'https' || !uri.host || uri.userInfo) {
+        throw new GradleException('uvcPlayPrivacyUrl must be a public HTTPS URL')
+    }
+}
+def playUpload = [
+    file: providers.environmentVariable('UVC_PLAY_UPLOAD_KEYSTORE').orNull,
+    storePassword: providers.environmentVariable('UVC_PLAY_UPLOAD_STORE_PASSWORD').orNull,
+    keyAlias: providers.environmentVariable('UVC_PLAY_UPLOAD_KEY_ALIAS').orNull,
+    keyPassword: providers.environmentVariable('UVC_PLAY_UPLOAD_KEY_PASSWORD').orNull
+]
+def playSigningEnabled = playUpload.values().any { it != null }
+if (playSigningEnabled && !playUpload.values().every { it }) {
+    throw new GradleException('Play upload signing requires all four UVC_PLAY_UPLOAD_* variables')
+}
+
 android {
     namespace 'com.facesdkpro.uvccamera.sample'
     compileSdk 36
     ndkVersion rootProject.ext.uvcNative.ndkVersion
-    defaultConfig { applicationId 'com.facesdkpro.uvccamera.sample'; minSdk 23; targetSdk 36; versionCode 7; versionName rootProject.ext.uvcSdkVersion }
+    buildFeatures { buildConfig true }
+    defaultConfig {
+        applicationId 'com.helloface.uvccamera'
+        minSdk 23
+        targetSdk 36
+        versionCode 7
+        versionName rootProject.ext.uvcSdkVersion
+        buildConfigField 'String', 'PRIVACY_POLICY_URL', '""'
+    }
     compileOptions { sourceCompatibility JavaVersion.VERSION_1_8; targetCompatibility JavaVersion.VERSION_1_8 }
     signingConfigs {
         release {
@@ -12,9 +40,28 @@ android {
             keyAlias 'uvc-camera'
             keyPassword 'HelloFace'
         }
+        if (playSigningEnabled) {
+            playUploadKey {
+                def upload = file(playUpload.file)
+                def demoKey = file('uvc-camera-release.jks')
+                if (!upload.isFile() || (demoKey.isFile() && Arrays.equals(upload.bytes, demoKey.bytes))) {
+                    throw new GradleException('Provide a private Play upload keystore separate from the public demo key')
+                }
+                storeFile upload
+                storePassword playUpload.storePassword
+                keyAlias playUpload.keyAlias
+                keyPassword playUpload.keyPassword
+            }
+        }
     }
     buildTypes {
         release { minifyEnabled true; shrinkResources true; proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'); signingConfig signingConfigs.release }
+        play {
+            initWith release
+            signingConfig signingConfigs.findByName('playUploadKey')
+            matchingFallbacks = ['release']
+            buildConfigField 'String', 'PRIVACY_POLICY_URL', groovy.json.JsonOutput.toJson(playPrivacyUrl)
+        }
         demo {
             initWith release
             // Installable developer demonstration, using only this machine's standard debug identity.

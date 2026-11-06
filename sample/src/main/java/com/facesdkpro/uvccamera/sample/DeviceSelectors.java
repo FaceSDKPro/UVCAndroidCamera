@@ -41,7 +41,7 @@ final class DeviceSelectors {
         populated = true;
         for (int role = 0; role < 2; role++) {
             List<String> choices = new ArrayList<>(labels.size() + 1);
-            choices.add(role == 0 ? "请选择 RGB 摄像头" : "请选择 IR 摄像头");
+            choices.add(role == 0 ? ui.context.getString(R.string.select_rgb) : ui.context.getString(R.string.select_ir));
             choices.addAll(labels);
             ui.deviceItems(controls[role], choices);
             int selected = 0;

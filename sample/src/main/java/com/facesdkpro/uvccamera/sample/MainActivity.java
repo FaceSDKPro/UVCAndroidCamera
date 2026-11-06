@@ -10,6 +10,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
+import android.util.Log;
 import android.view.Surface;
 import android.view.TextureView;
 import android.view.ViewGroup;
@@ -22,6 +23,7 @@ import android.widget.SeekBar;
 import android.widget.Spinner;
 import android.widget.TextView;
 
+import com.facesdkpro.uvccamera.CameraFailure;
 import com.facesdkpro.uvccamera.PreviewTransform;
 import com.facesdkpro.uvccamera.StreamConfig;
 import com.facesdkpro.uvccamera.UvcCameraManager;
@@ -29,7 +31,6 @@ import com.serenegiant.usb.UVCCamera;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 
 /** 双路预览与控制演示：只显示画面，不保存图像。 */
 public final class MainActivity extends Activity {
@@ -65,7 +66,7 @@ public final class MainActivity extends Activity {
                     if (!visible || closing || !hasCameras()) return;
                     for (UvcCameraManager.Camera camera : cameras) {
                         if (camera != null && camera.isClosed()) {
-                            failPair("摄像头已关闭 · 请重新打开双路预览", null);
+                            failPair(getString(R.string.camera_closed_reopen));
                             return;
                         }
                     }
@@ -75,9 +76,8 @@ public final class MainActivity extends Activity {
                         long count = cameras[i] == null ? 0 : cameras[i].receivedFrames();
                         DemoUi.setText(
                                 counters[i],
-                                String.format(
-                                        Locale.ROOT,
-                                        "%.1f FPS   ·   已收到 %d 帧",
+                                getString(
+                                        R.string.preview_stats,
                                         Math.max(0, count - previousCounts[i]) / seconds,
                                         count));
                         previousCounts[i] = count;
@@ -94,10 +94,10 @@ public final class MainActivity extends Activity {
         LinearLayout screen = ui.column();
         screen.addView(
                 ui.header(
-                        "双路视频预览",
-                        "RGB / IR · 独立设备控制",
-                        ui.button("返回", R.drawable.ic_back, false, this::finish)));
-        status = ui.status("设备连接后可分别调整预览参数");
+                        getString(R.string.dual_video_preview),
+                        getString(R.string.preview_subtitle),
+                        ui.button(getString(R.string.back), R.drawable.ic_back, false, this::finish)));
+        status = ui.status(getString(R.string.connect_to_configure));
         screen.addView(status, ui.margin(-1, -2, 20, 0, 20, 14));
         int width = getResources().getConfiguration().screenWidthDp,
                 height = getResources().getConfiguration().screenHeightDp;
@@ -108,21 +108,21 @@ public final class MainActivity extends Activity {
             final int slot = i;
             String role = i == 0 ? "RGB" : "IR";
             int color = i == 0 ? ui.rgb : ui.ir;
-            devices[i] = ui.spinner(role + " 设备");
+            devices[i] = ui.spinner(getString(R.string.device_for_role, role));
             settings[i] = new CaptureSettingsView(this, role);
             if (state != null) settings[i].restore(state.getIntArray("capture_" + i));
             brightness[i] = new SeekBar(this);
-            brightness[i].setContentDescription(role + " 设备亮度");
+            brightness[i].setContentDescription(getString(R.string.brightness_for_role, role));
             brightness[i].setMax(100);
             brightness[i].setEnabled(false);
             brightness[i].setProgressTintList(ColorStateList.valueOf(color));
             brightness[i].setThumbTintList(ColorStateList.valueOf(color));
-            brightnessText[i] = ui.label("打开摄像头后可调节设备亮度", 12, ui.muted);
+            brightnessText[i] = ui.label(getString(R.string.brightness_hint), 12, ui.muted);
             brightness[i].setOnSeekBarChangeListener(
                     new SeekBar.OnSeekBarChangeListener() {
                         public void onProgressChanged(SeekBar bar, int value, boolean user) {
                             if (user && cameras[slot] != null) {
-                                brightnessText[slot].setText("设备亮度 · " + value + "%");
+                                brightnessText[slot].setText(getString(R.string.brightness_value, value));
                                 cameras[slot].withControls(
                                         control -> control.setBrightnessPercent(value));
                             }
@@ -139,25 +139,25 @@ public final class MainActivity extends Activity {
             roleMark.setBackground(ui.shape(ui.tint(color, 20), 8, 0));
             title.addView(roleMark);
             ui.gap(title, 10);
-            deviceNames[i] = ui.label("未选择设备", 12, ui.muted);
+            deviceNames[i] = ui.label(getString(R.string.no_device_selected), 12, ui.muted);
             deviceNames[i].setSingleLine();
             deviceNames[i].setEllipsize(TextUtils.TruncateAt.END);
             title.addView(deviceNames[i], new LinearLayout.LayoutParams(0, -2, 1));
             ui.gap(title, 8);
             Button parameters =
-                    ui.button("参数", R.drawable.ic_tune, false, () -> showSettings(slot));
-            parameters.setContentDescription(role + " 参数");
+                    ui.button(getString(R.string.settings), R.drawable.ic_tune, false, () -> showSettings(slot));
+            parameters.setContentDescription(getString(R.string.settings_for_role, role));
             title.addView(parameters);
             channel.addView(title);
             ui.gap(channel, 10);
-            previews[i] = ui.new PreviewCard(i == 0 ? "RGB 可见光" : "IR 近红外", "独立 UVC 视频流", color);
+            previews[i] = ui.new PreviewCard(i == 0 ? getString(R.string.visible_light) : getString(R.string.infrared), getString(R.string.independent_stream), color);
             channel.addView(
                     previews[i],
                     compact
                             ? new LinearLayout.LayoutParams(-1, ui.dp(260))
                             : new LinearLayout.LayoutParams(-1, 0, 1));
-            counters[i] = ui.label("未打开 · 等待采集", 12, ui.muted);
-            counters[i].setContentDescription(role + " 预览统计");
+            counters[i] = ui.label(getString(R.string.preview_idle), 12, ui.muted);
+            counters[i].setContentDescription(getString(R.string.preview_stats_for_role, role));
             counters[i].setPadding(ui.dp(4), ui.dp(10), 0, 0);
             channel.addView(counters[i]);
             bindSurface(i);
@@ -181,20 +181,20 @@ public final class MainActivity extends Activity {
         } else screen.addView(streams, content);
         LinearLayout footer = ui.row();
         footer.setPadding(ui.dp(20), ui.dp(14), ui.dp(20), ui.dp(14));
-        open = ui.button("打开双路", 0, true, this::requestOpen);
+        open = ui.button(getString(R.string.open_both), 0, true, this::requestOpen);
         open.setEnabled(false);
         if (width >= 900 || width >= 640 && width > height) {
             footer.addView(
-                    ui.label("两路预览独立旋转 · 参数按设备能力设置", 12, ui.muted),
+                    ui.label(getString(R.string.preview_rotation_hint), 12, ui.muted),
                     new LinearLayout.LayoutParams(0, -2, 1));
             footer.addView(open, new LinearLayout.LayoutParams(ui.dp(200), -2));
         } else footer.addView(open, new LinearLayout.LayoutParams(0, -2, 1));
         ui.gap(footer, 10);
-        stop = ui.button("停止", R.drawable.ic_stop, false, this::stopPair);
+        stop = ui.button(getString(R.string.stop), R.drawable.ic_stop, false, this::stopPair);
         stop.setEnabled(false);
         footer.addView(stop, new LinearLayout.LayoutParams(ui.dp(100), -2));
         ui.gap(footer, 10);
-        refresh = ui.iconButton("刷新设备", R.drawable.ic_refresh, this::refreshDevices);
+        refresh = ui.iconButton(getString(R.string.refresh_devices), R.drawable.ic_refresh, this::refreshDevices);
         footer.addView(refresh, new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)));
         screen.addView(footer);
         if (state != null) restoredDevices = state.getStringArray("devices");
@@ -257,7 +257,7 @@ public final class MainActivity extends Activity {
         ui.gap(panel, 6);
         panel.addView(brightness[slot], new LinearLayout.LayoutParams(-1, ui.dp(44)));
         ui.gap(panel, 10);
-        panel.addView(ui.label("不支持的采集组合会明确报错。应用后，正在运行的两路预览将重新打开。", 12, ui.muted));
+        panel.addView(ui.label(getString(R.string.preview_settings_hint), 12, ui.muted));
         ScrollView scroll = new ScrollView(this);
         scroll.addView(panel);
         Runnable restore =
@@ -268,15 +268,15 @@ public final class MainActivity extends Activity {
                 };
         settingsDialog =
                 new AlertDialog.Builder(this)
-                        .setTitle(role + " 采集设置")
+                        .setTitle(getString(R.string.capture_settings_for_role, role))
                         .setView(scroll)
-                        .setNegativeButton("取消", (dialog, which) -> restore.run())
+                        .setNegativeButton(getString(R.string.cancel), (dialog, which) -> restore.run())
                         .setPositiveButton(
-                                "应用设置",
+                                getString(R.string.apply_settings),
                                 (dialog, which) -> {
                                     updateDeviceNames();
                                     if (hasCameras()) requestOpen();
-                                    else ui.setStatus(status, "参数已更新 · 点击打开双路开始预览", ui.muted);
+                                    else ui.setStatus(status, getString(R.string.settings_updated), ui.muted);
                                 })
                         .create();
         settingsDialog.setOnCancelListener(dialog -> restore.run());
@@ -357,7 +357,7 @@ public final class MainActivity extends Activity {
         @Override
         public void onDetached(UsbDevice device) {
             if (!current()) return;
-            if (cameraSlot(device) >= 0) failPair("摄像头已断开 · 请重新选择设备", null);
+            if (cameraSlot(device) >= 0) failPair(getString(R.string.camera_detached_select));
             else refreshDevices();
         }
 
@@ -380,7 +380,7 @@ public final class MainActivity extends Activity {
             boolean ready = opened[0] && opened[1];
             ui.setStatus(
                     status,
-                    ready ? "预览运行中 · 两路设备独立采集" : "正在连接 · 等待另一路摄像头",
+                    ready ? getString(R.string.dual_preview_active) : getString(R.string.waiting_other_camera),
                     ready ? ui.accent : ui.ir);
             updateButtons();
             camera.withControls(
@@ -396,19 +396,20 @@ public final class MainActivity extends Activity {
                                         brightness[slot].setProgress(value);
                                         DemoUi.setText(
                                                 brightnessText[slot],
-                                                enabled ? "设备亮度 · " + value + "%" : "当前设备不支持亮度调节");
+                                                enabled ? getString(R.string.brightness_value, value) : getString(R.string.brightness_unsupported));
                                     }
                                 });
                     });
         }
 
         @Override
-        public void onError(UsbDevice device, String message, Throwable cause) {
+        public void onFailure(CameraFailure failure) {
             if (!current()) return;
-            int slot = cameraSlot(device);
-            if (slot < 0) return;
-            if (cameras[slot].isClosed()) failPair(message, cause);
-            else ui.setStatus(status, errorText(message, cause), ui.error);
+            int slot = failure.device == null ? -1 : cameraSlot(failure.device);
+            if (slot < 0 && failure.device != null) return;
+            String message = ui.failureText(failure);
+            if (slot >= 0 && cameras[slot].isClosed()) failPair(message);
+            else ui.setStatus(status, message, ui.error);
         }
 
         @Override
@@ -422,7 +423,7 @@ public final class MainActivity extends Activity {
             if (visible) {
                 createManager();
                 if (restart) openPair();
-                else if (!failed) ui.setStatus(status, "预览已停止 · 可分别调整 RGB / IR 参数", ui.muted);
+                else if (!failed) ui.setStatus(status, getString(R.string.preview_stopped_settings), ui.muted);
             }
         }
     }
@@ -442,7 +443,7 @@ public final class MainActivity extends Activity {
     private void updateButtons() {
         boolean idle = !hasCameras();
         open.setEnabled(visible && manager != null && !closing && (idle || opened[0] && opened[1]));
-        DemoUi.setText(open, idle ? "打开双路" : "应用并重启");
+        DemoUi.setText(open, idle ? getString(R.string.open_both) : getString(R.string.apply_restart));
         stop.setEnabled(visible && !closing && !idle);
         refresh.setEnabled(visible && manager != null && !closing && idle);
     }
@@ -463,7 +464,7 @@ public final class MainActivity extends Activity {
             UsbDevice device = deviceSelectors.selected(i);
             DemoUi.setText(
                     deviceNames[i],
-                    device == null ? "在参数面板选择设备" : String.valueOf(device.getProductName()));
+                    device == null ? getString(R.string.choose_device_in_settings) : String.valueOf(device.getProductName()));
         }
     }
 
@@ -471,26 +472,26 @@ public final class MainActivity extends Activity {
         if (!visible || manager == null || closing) return;
         UsbDevice rgb = deviceSelectors.selected(0), ir = deviceSelectors.selected(1);
         if (rgb == null || ir == null || rgb.getDeviceName().equals(ir.getDeviceName())) {
-            ui.setStatus(status, "RGB 与 IR 必须选择不同设备", ui.error);
+            ui.setStatus(status, getString(R.string.distinct_devices_required), ui.error);
             return;
         }
         for (Surface surface : surfaces) {
             if (surface == null || !surface.isValid()) {
-                ui.setStatus(status, "预览正在准备，请稍后重试", ui.ir);
+                ui.setStatus(status, getString(R.string.preview_retry), ui.ir);
                 return;
             }
         }
         failed = false;
         if (hasCameras()) {
             restartPending = true;
-            ui.setStatus(status, "正在切换 · 释放旧会话后应用新设置", ui.ir);
+            ui.setStatus(status, getString(R.string.applying_settings), ui.ir);
             closeManager();
             return;
         }
         previousTick = 0;
         UsbDevice[] selected = {rgb, ir};
         try {
-            ui.setStatus(status, "正在连接 · 请允许相机与 USB 设备访问", ui.ir);
+            ui.setStatus(status, getString(R.string.connecting_permissions), ui.ir);
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
             for (int i = 0; i < 2; i++) {
                 applied[i] = settings[i].config(UVCCamera.PIXEL_FORMAT_NV21);
@@ -504,25 +505,22 @@ public final class MainActivity extends Activity {
             updateButtons();
             uiThread.post(tick);
         } catch (RuntimeException error) {
-            failPair("打开失败", error);
+            Log.w("UvcDemo", "Could not open preview", error);
+            failPair(getString(R.string.open_failed));
         }
     }
 
-    private String errorText(String message, Throwable cause) {
-        return message + (cause == null ? "" : " · " + cause.getMessage());
-    }
-
-    private void failPair(String message, Throwable cause) {
+    private void failPair(String message) {
         failed = true;
         restartPending = false;
-        ui.setStatus(status, errorText(message, cause), ui.error);
+        ui.setStatus(status, message, ui.error);
         closeManager();
     }
 
     private void stopPair() {
         failed = false;
         restartPending = false;
-        ui.setStatus(status, "正在停止采集…", ui.muted);
+        ui.setStatus(status, getString(R.string.stopping_capture), ui.muted);
         closeManager();
     }
 
@@ -535,9 +533,9 @@ public final class MainActivity extends Activity {
             cameras[i] = null;
             opened[i] = false;
             brightness[i].setEnabled(false);
-            DemoUi.setText(brightnessText[i], "打开摄像头后可调节设备亮度");
-            DemoUi.setText(counters[i], "未打开 · 等待采集");
-            previews[i].state(false, "独立 UVC 视频流");
+            DemoUi.setText(brightnessText[i], getString(R.string.brightness_hint));
+            DemoUi.setText(counters[i], getString(R.string.preview_idle));
+            previews[i].state(false, getString(R.string.independent_stream));
         }
         closing = manager != null;
         updateButtons();
@@ -555,7 +553,7 @@ public final class MainActivity extends Activity {
         super.onRequestPermissionsResult(request, names, values);
         if (request != 1 || !visible) return;
         if (values.length > 0 && values[0] == PackageManager.PERMISSION_GRANTED) openPair();
-        else ui.setStatus(status, "需要相机权限才能开始预览", ui.error);
+        else ui.setStatus(status, getString(R.string.preview_permission_required), ui.error);
     }
 
     @Override

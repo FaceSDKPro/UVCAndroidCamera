@@ -9,6 +9,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
 import android.graphics.drawable.StateListDrawable;
 import android.text.TextUtils;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.TextureView;
 import android.view.View;
@@ -20,6 +21,8 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.Spinner;
 import android.widget.TextView;
+
+import com.facesdkpro.uvccamera.CameraFailure;
 
 import java.util.List;
 
@@ -44,6 +47,27 @@ final class DemoUi {
 
     int dp(float value) {
         return Math.round(value * context.getResources().getDisplayMetrics().density);
+    }
+
+    String failureText(CameraFailure failure) {
+        Log.w("UvcDemo", failure.message, failure.cause);
+        int label;
+        switch (failure.code) {
+            case INITIALIZATION: label = R.string.camera_init_failed; break;
+            case USB_PERMISSION_DENIED: label = R.string.usb_permission_denied; break;
+            case USB_PERMISSION_TIMEOUT: label = R.string.usb_permission_timeout; break;
+            case STREAM_TIMEOUT: label = R.string.stream_timeout; break;
+            case PAIR_TIMEOUT: label = R.string.pair_timeout; break;
+            case FRAME_CONSUMER_FAILED: label = R.string.frame_consumer_failed; break;
+            case DEVICE_DETACHED: label = R.string.camera_detached; break;
+            case CAMERA_CLOSED: label = R.string.camera_closed; break;
+            case CONTROL_FAILED: label = R.string.camera_control_failed; break;
+            case RELEASE_FAILED: label = R.string.camera_release_failed; break;
+            default: label = R.string.open_failed; break;
+        }
+        String message = context.getString(label);
+        return failure.nativeStatus == null ? message
+                : context.getString(R.string.camera_error_status, message, failure.nativeStatus);
     }
 
     LinearLayout column() {
@@ -137,7 +161,7 @@ final class DemoUi {
 
     LinearLayout deviceField(View control) {
         LinearLayout v = column();
-        TextView caption = label("选择 USB 设备", 12, 0xffffffff);
+        TextView caption = label(context.getString(R.string.select_usb_device), 12, 0xffffffff);
         caption.setTypeface(Typeface.create("sans-serif", Typeface.BOLD));
         v.addView(caption);
         gap(v, 6);
@@ -213,7 +237,7 @@ final class DemoUi {
         gap(row, 12);
         LinearLayout copy = column();
         TextView name = strong(title, 22, text);
-        name.setSingleLine();
+        name.setMaxLines(2);
         name.setEllipsize(TextUtils.TruncateAt.END);
         copy.addView(name);
         gap(copy, 4);
@@ -297,7 +321,7 @@ final class DemoUi {
             values.addView(label(unit, 11, muted));
             addView(values);
             gap(this, 5);
-            detail = label("等待采集", 11, muted);
+            detail = label(context.getString(R.string.waiting_for_capture), 11, muted);
             detail.setSingleLine();
             detail.setEllipsize(TextUtils.TruncateAt.END);
             addView(detail);
@@ -328,7 +352,7 @@ final class DemoUi {
             meta = label(format, 12, muted);
             titles.addView(meta);
             head.addView(titles, new LinearLayout.LayoutParams(0, -2, 1));
-            badge = strong("未采集", 11, muted);
+            badge = strong(context.getString(R.string.not_capturing), 11, muted);
             badge.setPadding(dp(9), dp(5), dp(9), dp(5));
             badge.setBackground(shape(input, 8, 0));
             head.addView(badge);
@@ -348,11 +372,11 @@ final class DemoUi {
             camera.setBackground(shape(tint(color, 16), 20, 0));
             empty.addView(camera, new LinearLayout.LayoutParams(dp(68), dp(68)));
             gap(empty, 14);
-            emptyTitle = strong("等待摄像头画面", 16, text);
+            emptyTitle = strong(context.getString(R.string.preview_waiting), 16, text);
             emptyTitle.setGravity(Gravity.CENTER);
             empty.addView(emptyTitle);
             gap(empty, 8);
-            emptyDetail = label("开始采集后显示实时预览", 12, muted);
+            emptyDetail = label(context.getString(R.string.preview_start_hint), 12, muted);
             emptyDetail.setGravity(Gravity.CENTER);
             empty.addView(emptyDetail);
             empty.addOnLayoutChangeListener(
@@ -376,7 +400,7 @@ final class DemoUi {
         }
 
         void connecting() {
-            display(1, "正在打开设备…");
+            display(1, context.getString(R.string.opening_device));
         }
 
         private void display(int state, String info) {
@@ -385,11 +409,11 @@ final class DemoUi {
             displayState = state;
             boolean active = state == 2;
             empty.setVisibility(active ? View.GONE : View.VISIBLE);
-            badge.setText(state == 1 ? "连接中" : active ? "采集中" : "未采集");
+            badge.setText(state == 1 ? context.getString(R.string.connecting) : active ? context.getString(R.string.capturing) : context.getString(R.string.not_capturing));
             badge.setTextColor(state == 1 ? ir : active ? accent : muted);
             badge.setBackground(shape(active ? tint(accent, 22) : input, 8, 0));
-            setText(emptyTitle, state == 1 ? "正在连接摄像头" : "等待摄像头画面");
-            setText(emptyDetail, state == 1 ? "请允许相机及 USB 设备访问" : "开始采集后显示实时预览");
+            setText(emptyTitle, state == 1 ? context.getString(R.string.connecting_camera) : context.getString(R.string.preview_waiting));
+            setText(emptyDetail, state == 1 ? context.getString(R.string.allow_camera_usb) : context.getString(R.string.preview_start_hint));
         }
     }
 }

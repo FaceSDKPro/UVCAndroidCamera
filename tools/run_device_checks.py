@@ -10,7 +10,8 @@ import uuid
 from device_check_common import output_directory, file_sha256, require_installed_apk, matching_report
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGE = "com.facesdkpro.uvccamera.sample"
+PACKAGE = "com.helloface.uvccamera"
+ACTIVITY_NAMESPACE = "com.facesdkpro.uvccamera.sample"
 
 
 def source_fingerprint():
@@ -57,7 +58,7 @@ def main():
     try:
         call("shell", "am", "force-stop", PACKAGE)
         call("shell", "pm", "grant", PACKAGE, "android.permission.CAMERA")
-        command = ["shell", "am", "start", "-W", "-n", PACKAGE + "/." + activity, "--es", "runId", run_id]
+        command = ["shell", "am", "start", "-W", "-n", f"{PACKAGE}/{ACTIVITY_NAMESPACE}.{activity}", "--es", "runId", run_id]
         if args.basic_dual:
             command += ["--ez", "basic", "true"]
         print(call(*command).stdout, flush=True)
