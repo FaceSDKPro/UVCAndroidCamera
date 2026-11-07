@@ -1085,6 +1085,8 @@ uvc_error_t uvc_scan_control(uvc_device_handle_t *devh, uvc_device_info_t *info)
   }
 
   for (interface_idx = 0; interface_idx < info->config->bNumInterfaces; ++interface_idx) {
+    if (info->config->interface[interface_idx].num_altsetting == 0)
+      continue;
     if_desc = &info->config->interface[interface_idx].altsetting[0];
 
     if ( haveTISCamera && if_desc->bInterfaceClass == 255 && if_desc->bInterfaceSubClass == 1) // Video, Control
@@ -1111,6 +1113,10 @@ uvc_error_t uvc_scan_control(uvc_device_handle_t *devh, uvc_device_info_t *info)
 
   while (buffer_left >= 3) { // parseX needs to see buf[0,2] = length,type
     block_size = buffer[0];
+    if (block_size < 2 || block_size > buffer_left) {
+      ret = UVC_ERROR_INVALID_DEVICE;
+      break;
+    }
     parse_ret = uvc_parse_vc(devh->dev, info, buffer, block_size);
 
     if (parse_ret != UVC_SUCCESS) {
@@ -1144,6 +1150,9 @@ uvc_error_t uvc_parse_vc_header(uvc_device_t *dev,
     + (block[3] >> 4) * 10 + (block[3] & 0x0f);
   */
 
+  if (block_size < 12 || block[11] > block_size - 12)
+    return UVC_ERROR_INVALID_DEVICE;
+
   info->ctrl_if.bcdUVC = SW_TO_SHORT(&block[3]);
 
   switch (info->ctrl_if.bcdUVC) {
@@ -1160,7 +1169,7 @@ uvc_error_t uvc_parse_vc_header(uvc_device_t *dev,
     return UVC_ERROR_NOT_SUPPORTED;
   }
 
-  for (i = 12; i < block_size; ++i) {
+  for (i = 12; i < 12u + block[11]; ++i) {
     scan_ret = uvc_scan_streaming(dev, info, block[i]);
     if (scan_ret != UVC_SUCCESS) {
       ret = scan_ret;
@@ -1185,12 +1194,18 @@ uvc_error_t uvc_parse_vc_input_terminal(uvc_device_t *dev,
   UVC_ENTER();
 
   /* only supporting camera-type input terminals */
+  if (block_size < 6)
+    return UVC_ERROR_INVALID_DEVICE;
   if (SW_TO_SHORT(&block[4]) != UVC_ITT_CAMERA) {
     UVC_EXIT(UVC_SUCCESS);
     return UVC_SUCCESS;
   }
 
+  if (block_size < 15 || block[14] > block_size - 15)
+    return UVC_ERROR_INVALID_DEVICE;
   term = calloc(1, sizeof(*term));
+  if (!term)
+    return UVC_ERROR_NO_MEM;
 
   term->bTerminalID = block[3];
   term->wTerminalType = SW_TO_SHORT(&block[4]);
@@ -1219,7 +1234,11 @@ uvc_error_t uvc_parse_vc_processing_unit(uvc_device_t *dev,
 
   UVC_ENTER();
 
+  if (block_size < 8 || block[7] > block_size - 8)
+    return UVC_ERROR_INVALID_DEVICE;
   unit = calloc(1, sizeof(*unit));
+  if (!unit)
+    return UVC_ERROR_NO_MEM;
   unit->bUnitID = block[3];
   unit->bSourceID = block[4];
 
@@ -1243,7 +1262,11 @@ uvc_error_t uvc_parse_vc_selector_unit(uvc_device_t *dev,
 
   UVC_ENTER();
 
+  if (block_size < 4)
+    return UVC_ERROR_INVALID_DEVICE;
   unit = calloc(1, sizeof(*unit));
+  if (!unit)
+    return UVC_ERROR_NO_MEM;
   unit->bUnitID = block[3];
 
   DL_APPEND(info->ctrl_if.selector_unit_descs, unit);
@@ -1259,19 +1282,27 @@ uvc_error_t uvc_parse_vc_selector_unit(uvc_device_t *dev,
 uvc_error_t uvc_parse_vc_extension_unit(uvc_device_t *dev,
 					uvc_device_info_t *info,
 					const unsigned char *block, size_t block_size) {
-  uvc_extension_unit_t *unit = calloc(1, sizeof(*unit));
+  uvc_extension_unit_t *unit;
   const uint8_t *start_of_controls;
-  int size_of_controls, num_in_pins;
+  size_t controls_offset;
+  int size_of_controls;
   int i;
 
   UVC_ENTER();
 
+  if (block_size < 23)
+    return UVC_ERROR_INVALID_DEVICE;
+  controls_offset = 23u + block[21];
+  if (controls_offset > block_size || block[controls_offset - 1] > block_size - controls_offset)
+    return UVC_ERROR_INVALID_DEVICE;
+  unit = calloc(1, sizeof(*unit));
+  if (!unit)
+    return UVC_ERROR_NO_MEM;
   unit->bUnitID = block[3];
   memcpy(unit->guidExtensionCode, &block[4], 16);
 
-  num_in_pins = block[21];
-  size_of_controls = block[22 + num_in_pins];
-  start_of_controls = &block[23 + num_in_pins];
+  size_of_controls = block[controls_offset - 1];
+  start_of_controls = &block[controls_offset];
 
   for (i = size_of_controls - 1; i >= 0; --i)
     unit->bmControls = start_of_controls[i] + (unit->bmControls << 8);
@@ -1299,6 +1330,8 @@ uvc_error_t uvc_parse_vc(
     UVC_EXIT(UVC_SUCCESS);
     return UVC_SUCCESS; // UVC_ERROR_INVALID_DEVICE;
   }
+  if (block_size < 3)
+    return UVC_ERROR_INVALID_DEVICE;
 
   descriptor_subtype = block[2];
 
@@ -1345,6 +1378,9 @@ uvc_error_t uvc_scan_streaming(uvc_device_t *dev,
 
   ret = UVC_SUCCESS;
 
+  if (interface_idx >= info->config->bNumInterfaces
+      || info->config->interface[interface_idx].num_altsetting == 0)
+    return UVC_ERROR_INVALID_DEVICE;
   if_desc = &(info->config->interface[interface_idx].altsetting[0]);
   buffer = if_desc->extra;
   buffer_left = if_desc->extra_length;
@@ -1359,12 +1395,18 @@ uvc_error_t uvc_scan_streaming(uvc_device_t *dev,
     }
 
   stream_if = calloc(1, sizeof(*stream_if));
+  if (!stream_if)
+    return UVC_ERROR_NO_MEM;
   stream_if->parent = info;
   stream_if->bInterfaceNumber = if_desc->bInterfaceNumber;
   DL_APPEND(info->stream_ifs, stream_if);
 
   while (buffer_left >= 3) {
     block_size = buffer[0];
+    if (block_size < 2 || block_size > buffer_left) {
+      ret = UVC_ERROR_INVALID_DEVICE;
+      break;
+    }
     parse_ret = uvc_parse_vs(dev, info, stream_if, buffer, block_size);
 
     if (parse_ret != UVC_SUCCESS) {
@@ -1389,6 +1431,8 @@ uvc_error_t uvc_parse_vs_input_header(uvc_streaming_interface_t *stream_if,
 				      size_t block_size) {
   UVC_ENTER();
 
+  if (block_size < 10)
+    return UVC_ERROR_INVALID_DEVICE;
   stream_if->bEndpointAddress = block[6] & 0x8f;
   stream_if->bTerminalLink = block[8];
   stream_if->bStillCaptureMethod = block[9];
@@ -1406,7 +1450,11 @@ uvc_error_t uvc_parse_vs_format_uncompressed(uvc_streaming_interface_t *stream_i
 					     size_t block_size) {
   UVC_ENTER();
 
+  if (block_size < 27)
+    return UVC_ERROR_INVALID_DEVICE;
   uvc_format_desc_t *format = calloc(1, sizeof(*format));
+  if (!format)
+    return UVC_ERROR_NO_MEM;
 
   format->parent = stream_if;
   format->bDescriptorSubtype = block[2];
@@ -1436,7 +1484,11 @@ uvc_error_t uvc_parse_vs_frame_format(uvc_streaming_interface_t *stream_if,
 					     size_t block_size) {
   UVC_ENTER();
 
+  if (block_size < 28)
+    return UVC_ERROR_INVALID_DEVICE;
   uvc_format_desc_t *format = calloc(1, sizeof(*format));
+  if (!format)
+    return UVC_ERROR_NO_MEM;
 
   format->parent = stream_if;
   format->bDescriptorSubtype = block[2];
@@ -1466,7 +1518,11 @@ uvc_error_t uvc_parse_vs_format_mjpeg(uvc_streaming_interface_t *stream_if,
 					     size_t block_size) {
   UVC_ENTER();
 
+  if (block_size < 11)
+    return UVC_ERROR_INVALID_DEVICE;
   uvc_format_desc_t *format = calloc(1, sizeof(*format));
+  if (!format)
+    return UVC_ERROR_NO_MEM;
 
   format->parent = stream_if;
   format->bDescriptorSubtype = block[2];
@@ -1501,8 +1557,13 @@ uvc_error_t uvc_parse_vs_frame_frame(uvc_streaming_interface_t *stream_if,
 
   UVC_ENTER();
 
+  if (!stream_if->format_descs || block_size < 26
+      || block_size - 26 < 4u * (block[21] ? block[21] : 3u))
+    return UVC_ERROR_INVALID_DEVICE;
   format = stream_if->format_descs->prev;
   frame = calloc(1, sizeof(*frame));
+  if (!frame)
+    return UVC_ERROR_NO_MEM;
 
   frame->parent = format;
 
@@ -1523,6 +1584,10 @@ uvc_error_t uvc_parse_vs_frame_frame(uvc_streaming_interface_t *stream_if,
     frame->dwFrameIntervalStep = DW_TO_INT(&block[34]);
   } else {
     frame->intervals = calloc(block[21] + 1, sizeof(frame->intervals[0]));
+    if (!frame->intervals) {
+      free(frame);
+      return UVC_ERROR_NO_MEM;
+    }
     p = &block[26];
 
     for (i = 0; i < block[21]; ++i) {
@@ -1553,8 +1618,13 @@ uvc_error_t uvc_parse_vs_frame_uncompressed(uvc_streaming_interface_t *stream_if
 
   UVC_ENTER();
 
+  if (!stream_if->format_descs || block_size < 26
+      || block_size - 26 < 4u * (block[25] ? block[25] : 3u))
+    return UVC_ERROR_INVALID_DEVICE;
   format = stream_if->format_descs->prev;
   frame = calloc(1, sizeof(*frame));
+  if (!frame)
+    return UVC_ERROR_NO_MEM;
 
   frame->parent = format;
 
@@ -1575,6 +1645,10 @@ uvc_error_t uvc_parse_vs_frame_uncompressed(uvc_streaming_interface_t *stream_if
     frame->dwFrameIntervalStep = DW_TO_INT(&block[34]);
   } else {
     frame->intervals = calloc(block[25] + 1, sizeof(frame->intervals[0]));
+    if (!frame->intervals) {
+      free(frame);
+      return UVC_ERROR_NO_MEM;
+    }
     p = &block[26];
 
     for (i = 0; i < block[25]; ++i) {
@@ -1606,10 +1680,19 @@ uvc_error_t uvc_parse_vs_still_image_frame(uvc_streaming_interface_t *stream_if,
 
   UVC_ENTER();
 
+  if (!stream_if->format_descs || block_size < 6)
+    return UVC_ERROR_INVALID_DEVICE;
+  const size_t compression_offset = 5u + 4u * block[4];
+  if (compression_offset >= block_size || block[compression_offset] > block_size - compression_offset - 1)
+    return UVC_ERROR_INVALID_DEVICE;
   format = stream_if->format_descs->prev;
   frame = calloc(1, sizeof(*frame));
 
+  if (!frame)
+    return UVC_ERROR_NO_MEM;
   frame->parent = format;
+  // The device-info cleanup owns any partially parsed still-frame descriptor.
+  DL_APPEND(format->still_frame_desc, frame);
 
   frame->bDescriptorSubtype = block[2];
   frame->bEndPointAddress   = block[3];
@@ -1621,6 +1704,8 @@ uvc_error_t uvc_parse_vs_still_image_frame(uvc_streaming_interface_t *stream_if,
 
   for (i = 1; i <= numImageSizePatterns; ++i) {
     uvc_still_frame_res_t* res = calloc(1, sizeof(uvc_still_frame_res_t));
+    if (!res)
+      return UVC_ERROR_NO_MEM;
     res->bResolutionIndex = i;
     res->wWidth = SW_TO_SHORT(p);
     p += 2;
@@ -1630,12 +1715,14 @@ uvc_error_t uvc_parse_vs_still_image_frame(uvc_streaming_interface_t *stream_if,
     DL_APPEND(frame->imageSizePatterns, res);
   }
 
-  p = &block[5+4*numImageSizePatterns];
+  p = &block[compression_offset];
   frame->bNumCompressionPattern = *p;
 
   if(frame->bNumCompressionPattern)
   {
       frame->bCompression = calloc(frame->bNumCompressionPattern, sizeof(frame->bCompression[0]));
+      if (!frame->bCompression)
+        return UVC_ERROR_NO_MEM;
       for(i = 0; i < frame->bNumCompressionPattern; ++i)
       {
           ++p;
@@ -1646,8 +1733,6 @@ uvc_error_t uvc_parse_vs_still_image_frame(uvc_streaming_interface_t *stream_if,
   {
       frame->bCompression = NULL;
   }
-
-  DL_APPEND(format->still_frame_desc, frame);
 
   UVC_EXIT(UVC_SUCCESS);
   return UVC_SUCCESS;
@@ -1667,6 +1752,10 @@ uvc_error_t uvc_parse_vs(
 
   UVC_ENTER();
 
+  if (block[1] != 36)
+    return UVC_SUCCESS;
+  if (block_size < 3)
+    return UVC_ERROR_INVALID_DEVICE;
   ret = UVC_SUCCESS;
   descriptor_subtype = block[2];
 

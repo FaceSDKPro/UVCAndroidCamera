@@ -1,5 +1,14 @@
 # 验证记录
 
+## SDK 0.3.3 发布验收（2026-11-07）
+
+- 主机 AddressSanitizer 在旧解析器上复现截断帧间隔表越界读取。候选通过 9 项描述符用例，覆盖截断字段、越界接口、缺少格式和有效 MJPEG 间隔。Android 原生故障、像素转换和 JPEG 回归全部通过。
+- Samsung SM-S9210（Android 16）连接 RP26PWD RGB 和 RP26LD IR，640×480 基础双路回归通过 84 项。8 轮关闭后 USB 文件描述符和命令线程均归零。快速消费者场景约 14.95 对帧/秒，平均输入延迟约 2.84–4.14 ms。该结果来自短时回归，功耗与温升未测量。
+- 27 项 SDK Java 单测、14 项 Python 检查、Release/Demo Lint 和四 ABI 的 AAR/APK 制品审计通过。原生库合计 1,901,596 字节，较 0.3.2 增加 1,600 字节。总量预算调整为 1,901,600 字节，x86_64 的 libuvc 预算调整为 53,584 字节。
+- HelloFace Android Demo 使用同一 AAR 构建，113 项单测通过。APK 内 ARM 双 ABI 的 10 个相机原生库与发布 AAR 逐字节一致。
+
+AAR SHA-256 为 `9e1b5f44dcd68c40a91b6c49d33059c70f28cc39c394e306700209015c4233c5`。
+
 ## SDK 0.3.2 发布验收（2026-11-05）
 
 - 汇总相机启动确认、USB 状态传输关闭修复和逐帧状态维护收敛，以新坐标 `com.facesdkpro:uvc-android-camera:0.3.2` 交付；Demo `versionCode=7`。发布说明见 [RELEASE_NOTES.md](RELEASE_NOTES.md)，发布入口为 [GitHub Release v0.3.2](https://github.com/FaceSDKPro/UVCAndroidCamera/releases/tag/v0.3.2)，不向 Maven Central 发布。

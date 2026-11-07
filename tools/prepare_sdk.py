@@ -108,7 +108,7 @@ def main():
             'source_dirty': bool(subprocess.check_output(['git', 'status', '--porcelain'], cwd=ROOT)),
             'source_tree_sha256': before,
             'demo_signing': 'Standard local Android debug identity; replace with your own application signing',
-            'integration': 'Standalone acquisition SDK only; HelloFace has not been modified or linked',
+            'integration': 'Standalone UVC acquisition SDK and its developer demo',
             'pairing': 'Host callback-arrival clock; software association only, no sensor synchronization',
             'artifact_audit': audit,
         }

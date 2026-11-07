@@ -63,7 +63,7 @@ def main():
         objects.append(str(target))
     base = command[:command.index(str(ROOT / 'tools/native/frame_pipeline_test.cpp'))]
     tests = ['callback_ownership_test', 'jni_registration_test', 'frame_memory_test', 'stream_failure_test', 'frame_rotation_test',
-             'preview_startup_test', 'status_shutdown_test']
+             'preview_startup_test', 'status_shutdown_test', 'descriptor_bounds_test']
     for test in tests:
         cmd = base + [str(ROOT / ('tools/native/' + test + '.cpp'))]
         if test == 'callback_ownership_test':
@@ -78,6 +78,8 @@ def main():
         elif test == 'status_shutdown_test':
             cmd += objects[2:]
             cmd += ['-Wl,--wrap=' + name for name in ['uvc_process_status_xfer', 'uvc_release_if', 'uvc_unref_device', 'uvc_free_devh']]
+        elif test == 'descriptor_bounds_test':
+            cmd += objects[2:]
         else:
             cmd += objects[:1] if test == 'frame_memory_test' else objects[:2]
             wraps = ['realloc', 'free'] if test == 'frame_memory_test' else ['malloc', 'calloc', 'realloc', 'pthread_create', 'uvc_stream_ctrl']

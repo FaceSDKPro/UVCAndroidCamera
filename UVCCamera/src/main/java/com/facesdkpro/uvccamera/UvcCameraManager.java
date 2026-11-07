@@ -299,13 +299,13 @@ public final class UvcCameraManager implements AutoCloseable {
         public void withControls(ControlAction action) {
             if (action == null) throw new NullPointerException("action");
             if (closed.get() || UvcCameraManager.this.closed.get()) return;
-            worker.post(() -> {
-                if (!closed.get() && nativeCamera != null) {
+            worker.postAtTime(() -> {
+                if (!closed.get() && !UvcCameraManager.this.closed.get() && nativeCamera != null) {
                     try { action.run(nativeCamera.getControl()); }
                     catch (RuntimeException | LinkageError error) { emit(() -> listener.onFailure(new CameraFailure(
                             CameraFailure.Code.CONTROL_FAILED, device, "Device control failed", error, null))); }
                 }
-            });
+            }, this, SystemClock.uptimeMillis());
         }
         @Override public void close() {
             if (closed.compareAndSet(false, true)) worker.post(() -> stop(this));

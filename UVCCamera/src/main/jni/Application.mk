@@ -34,8 +34,9 @@ APP_OPTIM := release
 APP_SUPPORT_FLEXIBLE_PAGE_SIZES := true
 
 # Preserve codec SIMD and full optimization; reduce size at the reviewed ELF boundary.
+uvc_source_root := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../../../..)
 APP_CFLAGS := -DLOG_NDEBUG -O3 -flto=thin -fstack-protector-strong \
-    -ffunction-sections -fdata-sections
+    -ffunction-sections -fdata-sections -ffile-prefix-map=$(uvc_source_root)=/uvc-source
 # The system runtime has only unsized delete (C++17 otherwise emits sized delete).
 APP_CPPFLAGS := -std=c++17 -fno-sized-deallocation -fvisibility-inlines-hidden
 APP_LDFLAGS := -flto=thin -Wl,--gc-sections \

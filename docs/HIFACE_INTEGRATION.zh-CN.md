@@ -3,9 +3,8 @@
 摄像头库保持独立：UVCAndroidCamera 负责采集、像素格式、软件配对和设备状态；
 HiFace 负责人脸检测、RGB 身份搜索、IR 活体及最终业务判断。
 
-已发布的 HiFace 0.8.6 搜索开关仍表示 RGB 活体。HiFace 私有开发分支已经提供
-`RgbIrFrame` 和 `InfraredSearchConfig`，对应 Demo 位于 `UVCCameraFaceSearchActivity.java`；
-下方双目示例要求该配套开发 SDK，不能直接用于旧的已发布二进制。
+双目示例使用提供 `RgbIrFrame` 和 `InfraredSearchConfig` 的 HiFace SDK。
+Android Demo 的接入入口为 `UVCCameraFaceSearchActivity.java`。
 
 ## 本地 AAR 接入
 
@@ -16,25 +15,17 @@ HiFace 负责人脸检测、RGB 身份搜索、IR 活体及最终业务判断。
 ```
 
 本地 Maven 目录为 `build/sdk-maven`，相机坐标为
-`com.facesdkpro:uvc-android-camera:0.3.2`。包含相机启动状态和 USB 关闭时序修复；
-集成方应将相机依赖版本同步升级到 `0.3.2`，不覆盖已发布的不可变版本。
+`com.facesdkpro:uvc-android-camera:0.3.3`。包含 USB 描述符边界检查和关闭阶段待执行控制操作的清理。
 
-在 HiFace 的 `platforms/android/demo/build.gradle.kts` 中更新依赖：
+对于使用本地 Maven 的项目，在 Demo 的 Gradle 文件中更新坐标：
 
 ```kotlin
-implementation("com.facesdkpro:uvc-android-camera:0.3.2")
+implementation("com.facesdkpro:uvc-android-camera:0.3.3")
 ```
 
-HiFace 已支持通过 Gradle 属性传入仓库目录，在 HiFace 根目录执行：
-
-```sh
-platforms/android/gradlew -p platforms/android :demo:assembleDebug \
-  -PhifaceRgbIrDevelopment=true \
-  -Phiface.uvcRepository=/absolute/path/UVCAndroidCamera/build/sdk-maven
-```
-
-本地同坐标重新构建时使用 `--refresh-dependencies`，并核对 APK 内相机 so 与本次 AAR 的实际摘要。
-不要把本机目录写死到提交的 Gradle 文件。UVC AAR 仅进入 Demo，相机实现不进入 HiFace 算法 SDK。
+HelloFace Android Demo 使用本地文件。把 Release 中的 `uvc-android-camera-0.3.3.aar`
+放入 `platforms/Android/demo/libs/` 并同步更新 `implementation(files(...))`。
+UVC AAR 进入 Demo，相机实现与 HiFace 算法 SDK 分开交付。
 
 ## 双目送帧与终态
 
