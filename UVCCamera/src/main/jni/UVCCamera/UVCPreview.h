@@ -130,7 +130,8 @@ private:
     int ensureCaptureThread();
     void drawPreviewMjpeg(uvc_frame_t *input);
 
-    void draw_preview_one(uvc_frame_t *frame, ANativeWindow **window);
+    ANativeWindow *acquirePreviewWindow();
+    void draw_preview_one(uvc_frame_t *frame);
 
 //
     bool addCaptureFrame(uvc_frame_t *frame);

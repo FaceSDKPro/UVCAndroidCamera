@@ -646,10 +646,7 @@ int UVCPreview::do_preview(uvc_stream_ctrl_t *ctrl) {
                                      || mPixelFormat == PIXEL_FORMAT_GRAY8);
         pthread_mutex_unlock(&capture_mutex);
         if (needsCapture && ensureCaptureThread()) { recycle_frame(input); break; }
-        pthread_mutex_lock(&preview_mutex);
-        bool hasPreview = mPreviewWindow != NULL;
-        pthread_mutex_unlock(&preview_mutex);
-        if (!hasPreview) {
+        if (!mHasPreview.load(std::memory_order_acquire)) {
             // Pass compressed input to the latest-frame capture queue. A slow SDK
             // callback skips obsolete JPEGs without decoding or RGBX allocation.
             if (!needsCapture || !addCaptureFrame(input)) recycle_frame(input);
@@ -665,7 +662,7 @@ int UVCPreview::do_preview(uvc_stream_ctrl_t *ctrl) {
             // not switch the algorithm to RGBX->gray or decode the JPEG a second time.
             uvc_frame_t *gray = decodeCaptureFrame(input, true, previewDecoder);
             if (gray) {
-                draw_preview_one(gray, &mPreviewWindow);
+                draw_preview_one(gray);
                 if (!addCaptureFrame(gray)) recycle_frame(gray);
             }
             continue;
@@ -675,7 +672,7 @@ int UVCPreview::do_preview(uvc_stream_ctrl_t *ctrl) {
                         ? previewDecoder.decode(input, rgb) : uvc_yuyv2rgbx(input, rgb)) : UVC_ERROR_NO_MEM;
         if (!result) {
             copyFrameTiming(input, rgb);
-            draw_preview_one(rgb, &mPreviewWindow);
+            draw_preview_one(rgb);
             if (captureYuyv) {
                 recycle_frame(rgb);
                 if (!addCaptureFrame(input)) recycle_frame(input);
@@ -698,11 +695,16 @@ int UVCPreview::do_preview(uvc_stream_ctrl_t *ctrl) {
     return 0;
 }
 
-void UVCPreview::drawPreviewMjpeg(uvc_frame_t *input) {
+ANativeWindow *UVCPreview::acquirePreviewWindow() {
     pthread_mutex_lock(&preview_mutex);
     ANativeWindow *window = mPreviewWindow;
     if (window) ANativeWindow_acquire(window);
     pthread_mutex_unlock(&preview_mutex);
+    return window;
+}
+
+void UVCPreview::drawPreviewMjpeg(uvc_frame_t *input) {
+    ANativeWindow *window = acquirePreviewWindow();
     if (!window) return;
     ANativeWindow_Buffer buffer;
     if (ANativeWindow_lock(window, &buffer, NULL) == 0) {
@@ -750,7 +752,8 @@ int copyToSurface(uvc_frame_t *frame, ANativeWindow **window) {
                 }
             }
 
-            ANativeWindow_unlockAndPost(*window);
+            const int posted = ANativeWindow_unlockAndPost(*window);
+            if (!result) result = posted;
         } else {
             result = -1;
         }
@@ -760,19 +763,12 @@ int copyToSurface(uvc_frame_t *frame, ANativeWindow **window) {
     return result; //RETURN(result, int);
 }
 
-void UVCPreview::draw_preview_one(uvc_frame_t *frame, ANativeWindow **window) {
-    // ENTER();
-
-    pthread_mutex_lock(&preview_mutex);
-    {
-        if (LIKELY(*window != NULL)) {
-            if (copyToSurface(frame, window) == 0)
-                mPreviewFrameCount.fetch_add(1, std::memory_order_relaxed);
-        }
-    }
-    pthread_mutex_unlock(&preview_mutex);
-
-    //RETURN();
+void UVCPreview::draw_preview_one(uvc_frame_t *frame) {
+    ANativeWindow *window = acquirePreviewWindow();
+    if (!window) return;
+    if (copyToSurface(frame, &window) == 0)
+        mPreviewFrameCount.fetch_add(1, std::memory_order_relaxed);
+    ANativeWindow_release(window);
 }
 
 //======================================================================

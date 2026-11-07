@@ -163,3 +163,38 @@ A short host-only 640×480 / two 30-FPS producers / 80-ms consumer comparison ag
 Startup confirmation and draining USB status transfers keep their synchronization at open/close. During capture, the session watchdog reuses input timestamps already maintained by the pairing engine. Copy completion checks for final shutdown while holding the existing ownership lock. This removes one duplicate atomic timestamp write and one extra shared-lock acquisition per input frame, about 60 of each per second with two 30-FPS streams. Health checks remain at 2 Hz with notifications only on state changes. Five-second timeouts, two buffers per role, age/order checks and safe shutdown remain in place. No extra configuration, persistent worker or per-frame logging was added; the repository guidance records this balance.
 
 A host stress check uses the production `FramePairDispatcher`, 640×480 pixels, two producers and a blocked consumer, in baseline/update/update/baseline order. Each variant has ten samples of 10,000 input frames. Median producer CPU is **82.177 → 82.736 ms**, with overlapping ranges and no clear gain; USB, decoding and Android are excluded. The low-level two-stream MJPEG/NV21 headless device check records three five-second samples per variant: **88.79–96.72% → 94.98–100.88%** of one core, with streams near **29.17 / 29.97 FPS**. Exposure was not locked and this scenario does not exercise pairing, so it cannot attribute CPU changes to this edit or establish CPU/power savings. Reduced duplicate state maintenance is the established result; capture, pairing throughput and shutdown checks are recorded in [VALIDATION.md](VALIDATION.md).
+
+
+## Preview and sustained capture on 2026-11-07
+
+Version 0.4.0 renders pixel-callback previews outside the capture queue mutex while holding an independent
+window reference. It reuses the atomic preview state and checks Surface post failures before counting a preview.
+Native regression cases cover a Surface switch during blocked rendering, failed posts and balanced window references.
+
+A Samsung SM-S9210 on Android 16 ran RP26PWD RGB and RP26LD IR cameras for 600.056 seconds after five seconds
+of warmup. Both streams requested 640×480 MJPEG at 30 FPS. RGB delivered NV21 with a preview, IR delivered GRAY8,
+and software pairing was limited to 15 pairs per second. Diagnostic window brightness was 35%. HiFace processing
+was outside this test.
+
+RGB and IR averaged 29.997 and 29.207 FPS, pairing averaged 14.959 FPS, and mean input latency was 3.549 ms.
+Process CPU averaged 58.09% of one core. Native heap allocation stayed within 15,297–15,535 KiB.
+The six active USB descriptors and seven camera workers reached zero after close, which took approximately 519 ms.
+Java heap grew from approximately 5.2 MiB to 27.0 MiB and returned to 2,108 KiB after the shutdown GC.
+Native heap after close was 10,387 KiB. PSS included the live Activity and graphics caches and was 71,401 KiB after close.
+
+Phone SKIN temperature went from 34.2°C to 35.7°C. All thermal-status samples were zero.
+A two-minute 0.3.3 baseline averaged 61.43% CPU, 29.995/29.204 source FPS, 14.960 paired FPS and 3.677 ms mean input latency.
+Exposure was unlocked and run durations and starting temperatures differed, so these observations do not establish
+a repeatable CPU or cooling benefit. Camera-module temperature and electrical power were unmeasured.
+Hourly and multi-day stability remain separate validation work. Two earlier runs interrupted by Activity backgrounding
+are retained as interrupted runs.
+
+The isolated diagnostic package contained all 20 exact native libraries from the 0.4.0 AAR.
+Raw metadata is outside the source tree at `/tmp/uvc-endurance-o3XcJ4/`. No camera images were saved.
+
+
+A subsequent two-minute 15 FPS run averaged 15.001/14.602 source FPS, 14.610 paired FPS, 4.928 ms mean input latency,
+and 53.36% process CPU relative to one core. Phone SKIN temperature went from 35.2°C to 35.8°C.
+Close took approximately 586 ms and drained USB descriptors and camera workers.
+This mode reduced input and paired throughput alongside CPU use. Different durations and starting temperatures
+also limit comparison, so it does not establish a same-throughput optimization or camera-module cooling.

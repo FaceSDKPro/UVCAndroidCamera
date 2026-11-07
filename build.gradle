@@ -10,7 +10,7 @@ if (requestedUvcAbis.any { !supportedUvcAbis.contains(it) } || requestedUvcAbis.
     throw new GradleException('uvcAbis must be a comma-separated subset of ' + supportedUvcAbis.join(','))
 }
 ext.uvcNative = [ndkVersion: '29.0.14206865', abis: requestedUvcAbis]
-ext.uvcSdkVersion = '0.3.3'
+ext.uvcSdkVersion = '0.4.0'
 
 // Local developer delivery only. No upload, remote repository or CI/CD task.
 if (findProject(':UVCCamera') != null) {
