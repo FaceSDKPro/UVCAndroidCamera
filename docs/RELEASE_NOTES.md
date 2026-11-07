@@ -1,30 +1,35 @@
-# UVCAndroidCamera 0.4.0
+# UVCAndroidCamera 0.5.0
 
-Android SDK 坐标为 `com.facesdkpro:uvc-android-camera:0.4.0`。HelloFace Android Demo 可使用本地 AAR 接入。
+Android SDK 坐标为 `com.facesdkpro:uvc-android-camera:0.5.0`。
 
-- 带像素回调的预览通过独立 Surface 引用完成绘制，采集队列的锁只覆盖窗口引用获取。Surface 写入期间可以继续入队和切换窗口。
-- 采集循环复用已有的原子预览状态，减少一次逐帧队列加锁。
-- 预览计数检查 `ANativeWindow_unlockAndPost` 返回值，提交失败会保留失败结果。
-- 保留 0.3.3 的 USB 描述符边界检查、启动失败上报及关闭阶段控制操作清理。
+- 默认使用 Middle，RGB / IR 均请求 640×480 MJPEG / 15 FPS。
+- High 请求两路 30 FPS，通过 `DualCameraConfig.defaults(DualCameraConfig.Mode.HIGH)` 选择。
+- 原有 `DualCameraConfig.defaults()` 默认选 Middle。默认接入增加 0 行，选择 High 替换 1 行。
+- RGB NV21 / IR GRAY8、软件配对和旋转继续通过现有配置链设置。
+- Demo 主页中文顶部标题为“双目相机”，采集参数默认选 Middle。
 
-性能与连续运行的实测范围见 `docs/PERFORMANCE.zh-CN.md`，发布验收见 `docs/VALIDATION.md`。
-
-Samsung SM-S9210 / Android 16 的完整 10 分钟采集、预览和配对测试保持约 30.0 / 29.2 FPS，
-配对约 14.96 对/秒。关闭后 USB 句柄和相机线程归零。手机 SKIN 温度从 34.2°C 升至 35.7°C，
-温控采样均为 0。小时级运行、摄像头模组温度和电功耗仍需单独验证。
-
-AAR SHA-256 为 `181da6ca85ff109be97c65dcef44008615ceed270b642bdd6cefe160fc8a12e7`。
+模式在打开会话时应用，摄像头须支持对应的分辨率、传输格式和帧率。配对交付上限由已有配置决定。
 
 ## 下载
 
-- `uvc-android-camera-0.4.0.aar` 适用于直接接入。
-- `uvc-android-camera-0.4.0.zip` 包含四 ABI AAR、本地 Maven 仓库、开发 Demo、独立示例和文档。
-- `uvc-android-camera-0.4.0-sources.jar` 提供 Java 源码。
-- `UvcCameraDemo-0.4.0.apk` 为开发演示，`versionCode=9`。
+- `uvc-android-camera-0.5.0.aar` 供直接接入。
+- `uvc-android-camera-0.5.0.zip` 包含四 ABI AAR、本地 Maven 仓库、开发 Demo、独立示例和文档。
+- `uvc-android-camera-0.5.0-sources.jar` 提供 Java 源码。
+- `UvcCameraDemo-0.5.0.apk` 为开发演示，`versionCode=11`。
 - `SHA256SUMS` 提供附件校验值。
+
+验收范围见 `docs/VALIDATION.md`。性能、温度和连续运行证据见 `docs/PERFORMANCE.zh-CN.md`。
+
+SDK 28 项 Java 单测、14 项 Python 检查及 HelloFace Demo 113 项单测通过。发布 AAR 与已验收的
+Middle / High 候选逐字节一致，沿用其 84 项双目真机回归记录。
+AAR SHA-256 为 `2db5ac66fd84052878023f23ce2d2e76422b77277cf558038252f30cac895a32`。
 
 ## English
 
-Version 0.4.0 renders pixel-callback previews using an independently acquired Surface reference. The preview queue lock covers reference acquisition, allowing queued capture and Surface changes to proceed during rendering. The capture loop reuses its atomic preview state, and preview counters now check the Surface post result. Version 0.3.3 startup, descriptor validation and shutdown fixes are included.
+Version 0.5.0 defaults dual capture to Middle at 15 FPS per camera. Select High at 30 FPS through
+`DualCameraConfig.defaults(DualCameraConfig.Mode.HIGH)`. Existing `defaults()` calls select Middle with zero
+additional integration lines. High requires replacing one configuration call. Both modes use 640×480 MJPEG,
+RGB NV21 and IR GRAY8. Existing pairing and rotation settings apply. The Chinese Demo header reads “双目相机”.
 
-A complete ten-minute capture, preview and pairing run on a Samsung SM-S9210 maintained approximately 30.0/29.2 source FPS and 14.96 paired FPS. USB descriptors and camera workers reached zero after close. Phone SKIN temperature went from 34.2°C to 35.7°C, with thermal-status samples at zero. Hourly operation, camera-module temperature and electrical power require separate measurements.
+The release AAR is byte-identical to the previously tested Middle/High candidate, whose 84 device checks are retained.
+The SDK build has 28 Java tests and 14 Python checks, and the HelloFace Demo has 113 passing unit tests.

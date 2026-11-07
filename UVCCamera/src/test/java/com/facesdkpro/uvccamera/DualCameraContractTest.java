@@ -61,6 +61,26 @@ public class DualCameraContractTest {
         assertThrows(IllegalArgumentException.class, () -> new DualCameraConfig(large, valid.ir, 50, 150, 15));
     }
 
+    @Test public void capturePresetsDefaultToMiddleAndKeepPairingLimits() {
+        assertEquals(15, DualCameraConfig.defaults().rgb.fps);
+        assertEquals(15, DualCameraConfig.defaults().ir.fps);
+        for (DualCameraConfig.Mode mode : DualCameraConfig.Mode.values()) {
+            DualCameraConfig preset = DualCameraConfig.defaults(mode);
+            assertEquals(mode == DualCameraConfig.Mode.MIDDLE ? 15 : 30, preset.rgb.fps);
+            assertEquals(preset.rgb.fps, preset.ir.fps);
+            assertEquals(640, preset.rgb.width);
+            assertEquals(480, preset.ir.height);
+            assertEquals(UVCCamera.UVC_VS_FRAME_MJPEG, preset.rgb.frameType);
+            assertEquals(preset.rgb.frameType, preset.ir.frameType);
+            assertEquals(UVCCamera.PIXEL_FORMAT_NV21, preset.rgb.pixelFormat);
+            assertEquals(UVCCamera.PIXEL_FORMAT_GRAY8, preset.ir.pixelFormat);
+            assertEquals(15, preset.maxPairsPerSecond);
+            assertEquals(50, preset.maxPairSkewMillis);
+            assertEquals(150, preset.maxFrameAgeMillis);
+        }
+        assertThrows(NullPointerException.class, () -> DualCameraConfig.defaults(null));
+    }
+
     @Test public void namedConfigStepsKeepDefaultsAndPreserveImmutableRotations() {
         DualCameraConfig original = config();
         DualCameraConfig defaults = DualCameraConfig.forStreams(original.rgb, original.ir);

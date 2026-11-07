@@ -28,7 +28,7 @@ android {
         applicationId 'com.helloface.uvccamera'
         minSdk 23
         targetSdk 36
-        versionCode 9
+        versionCode 11
         versionName rootProject.ext.uvcSdkVersion
         buildConfigField 'String', 'PRIVACY_POLICY_URL', '""'
     }

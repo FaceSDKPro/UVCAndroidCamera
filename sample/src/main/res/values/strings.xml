@@ -1,5 +1,6 @@
 <resources>
     <string name="app_name">UVC Dual Camera</string>
+    <string name="capture_title">Dual Camera</string>
     <string name="dual_preview">Dual preview</string>
     <string name="dual_preview_accessibility">Camera preview and controls</string>
     <string name="capture_subtitle">RGB + IR capture console</string>

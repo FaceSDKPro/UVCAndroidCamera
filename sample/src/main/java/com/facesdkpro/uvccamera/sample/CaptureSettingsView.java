@@ -23,8 +23,8 @@ final class CaptureSettingsView extends LinearLayout {
         fps = ui.spinner(context.getString(R.string.fps_for_role, role));
         ui.items(
                 fps,
-                new String[] {"5 FPS", "10 FPS", "15 FPS", "20 FPS", "25 FPS", "30 FPS", "60 FPS"});
-        fps.setSelection(5);
+                new String[] {"5 FPS", "10 FPS", "Middle · 15 FPS", "20 FPS", "25 FPS", "High · 30 FPS", "60 FPS"});
+        fps.setSelection(2);
         transport = ui.spinner(context.getString(R.string.format_for_role, role));
         ui.items(transport, new String[] {"MJPEG", "YUYV"});
         rotation = ui.spinner(context.getString(R.string.rotation_for_role, role));

@@ -1,5 +1,28 @@
 # 验证记录
 
+## SDK 0.5.0 发布验收（2026-11-07）
+
+- 正式交付 Middle / High 两档采集。默认 `DualCameraConfig.defaults()` 请求两路 15 FPS，显式 `defaults(Mode.HIGH)` 请求两路 30 FPS。默认接入增加 0 行，选择 High 替换 1 行。Demo 中文顶部标题为“双目相机”，`versionCode=11`。
+- `prepareSdk`、SDK 28 项 Java 单测、14 项 Python 检查、库 Release / Demo Lint 和四 ABI AAR / APK 审计通过。SDK 解压校验、独立示例离线构建和 Lint 通过，示例解析本次 0.5.0 坐标及目标 AAR。
+- AAR 与上一节 0.4.1 本地候选逐字节相同，沿用其 84 项 Middle / High 双目真机验收。报告与实际诊断 APK 摘要绑定，Java 类及 20 个原生库一致。本轮版本发布未重跑该硬件套件，也未重跑 0.4.0 的十分钟测量。
+- HelloFace 公开 Demo 和私有开发 Demo 均已使用同一 AAR 构建通过。公开 Demo 的 113 项单测通过，APK 内 ARM 双 ABI 的 10 个相机原生库与发布 AAR 逐字节一致。
+
+AAR SHA-256 为 `2db5ac66fd84052878023f23ce2d2e76422b77277cf558038252f30cac895a32`。
+发布说明见 [RELEASE_NOTES.md](RELEASE_NOTES.md)，原始审计和附件回读记录位于源码树外
+`/tmp/uvc-release-0.5.0/`。
+
+## SDK 0.4.1 本地候选验收（2026-11-07）
+
+- `DualCameraConfig.defaults()` 默认 Middle，两路请求 15 FPS。新增 `defaults(Mode.HIGH)` 请求两路 30 FPS。分辨率为 640×480 MJPEG，RGB NV21 / IR GRAY8，配对限制和旋转继续使用现有配置链。
+- HelloFace 现有相机接入代码增加 0 行；选择 High 替换 1 行配置。公开 Demo 和私有开发 Demo 均已升级本地 AAR 并构建通过，公开 Demo 的 113 项单测通过。
+- SDK 28 项 Java 单测、Release/Demo Lint 和四 ABI 制品审计通过。直接对 AAR 中的 classes.jar 编译并运行独立消费者，确认默认 Middle 和显式 High 的两路帧率分别为 15 / 30 FPS。
+- Samsung SM-S9210 / Android 16 的 84 项双目基础回归全部通过，默认周期使用 Middle，末轮显式使用 High。Middle 正常配对约 14.58 对/秒，High 约 14.96 对/秒；软件配对上限为原有 15 对/秒。8 轮关闭后 USB FD 和相机线程均归零。
+- 20 个原生库与 0.4.0 逐字节一致。诊断 APK 的 20 个原生库、HelloFace APK 的 ARM 双 ABI 10 个原生库均与本次 AAR 一致。本轮新增验证覆盖模式映射和启动关闭；0.4.0 的十分钟测量保留在下节。
+
+AAR SHA-256 为 `2db5ac66fd84052878023f23ce2d2e76422b77277cf558038252f30cac895a32`。
+本地候选和报告在 `build/sdk/uvc-android-camera-0.4.1/` 与源码树外
+`/tmp/uvc-middle-high-0.4.1/`。
+
 ## SDK 0.4.0 发布验收（2026-11-07）
 
 - 带像素回调的预览在队列锁内取得独立窗口引用，Surface 写入和提交在锁外完成。采集循环复用已有原子预览状态。提交失败保留错误，预览计数只接受成功提交。

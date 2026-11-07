@@ -88,7 +88,8 @@ public final class DualSessionProbeActivity extends Activity {
         pairs.set(0); bad.set(0); first.set(0); last.set(0); consumerEnd.set(0); updates.set(0);
         latencyTotal.set(0); latencyMax.set(0); stateNotifications = 0; lastState = null;
         errors = controls = 0; ready = closeReturnedBeforeConsumer = false;
-        DualCameraConfig config = DualCameraConfig.defaults();
+        DualCameraConfig config = cycle == 7
+                ? DualCameraConfig.defaults(DualCameraConfig.Mode.HIGH) : DualCameraConfig.defaults();
         if (cycle == 5) config = new DualCameraConfig(new StreamConfig(2, 2, 30,
                 UVCCamera.UVC_VS_FRAME_MJPEG, UVCCamera.PIXEL_FORMAT_NV21, 0), config.ir, 50, 150, 15);
         if (cycle == 8) config = config.withRotations(90,270);

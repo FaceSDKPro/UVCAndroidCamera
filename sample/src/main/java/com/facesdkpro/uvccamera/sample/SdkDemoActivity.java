@@ -127,7 +127,7 @@ public final class SdkDemoActivity extends Activity {
                         false,
                         () -> startActivity(new Intent(this, MainActivity.class)));
         diagnostic.setContentDescription(getString(R.string.dual_preview_accessibility));
-        screen.addView(ui.header(getString(R.string.app_name), getString(R.string.capture_subtitle), diagnostic));
+        screen.addView(ui.header(getString(R.string.capture_title), getString(R.string.capture_subtitle), diagnostic));
         status = ui.status(getString(R.string.select_two_cameras));
         screen.addView(status, ui.margin(-1, -2, 20, 0, 20, 14));
         LinearLayout controls = buildControls(!compact);

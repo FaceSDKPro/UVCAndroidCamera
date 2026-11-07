@@ -13,7 +13,7 @@ Use JDK 17, Android SDK 36 and NDK 29.0.14206865 at the source root:
 ```
 
 This builds locally and creates a local Maven directory. It does not upload artifacts or run CI/CD.
-`build/sdk/uvc-android-camera-0.4.0/` and its ZIP contain:
+`build/sdk/uvc-android-camera-0.5.0/` and its ZIP contain:
 
 - `sdk/`: four-ABI Release AAR and Java sources JAR.
 - `maven-repository/`: fixed-version AAR, POM, Gradle module metadata and sources.
@@ -22,7 +22,7 @@ This builds locally and creates a local Maven directory. It does not upload arti
 - Bilingual documentation, licenses, `sdk-manifest.json` and `SHA256SUMS`.
 
 Minimum API levels are 21 for the SDK and 23 for the Demo. Use your own application signing for production.
-Download the SDK from [GitHub Release v0.4.0](https://github.com/FaceSDKPro/UVCAndroidCamera/releases/tag/v0.4.0). Maven Central publication is not available.
+Published packages are available from [GitHub Release v0.5.0](https://github.com/FaceSDKPro/UVCAndroidCamera/releases/tag/v0.5.0). Maven Central publication is not available.
 Select ABIs with `-PuvcAbis=arm64-v8a,armeabi-v7a` if needed. Keep builds with different ABI sets in separate delivery directories;
 do not mix different bytes under the same coordinates in a dependency cache.
 
@@ -49,15 +49,25 @@ dependencyResolutionManagement {
 Then add the application dependency:
 
 ```groovy
-dependencies { implementation 'com.facesdkpro:uvc-android-camera:0.4.0' }
+dependencies { implementation 'com.facesdkpro:uvc-android-camera:0.5.0' }
 ```
 
 Alternatively, copy the AAR into application `libs/` and use
-`implementation files('libs/uvc-android-camera-0.4.0.aar')`.
+`implementation files('libs/uvc-android-camera-0.5.0.aar')`.
 There are no third-party Java runtime dependencies. JNI consumer rules and native license notices are embedded.
 Do not also package upstream copies of the same classes or native libraries.
 
 ## Open a paired session
+
+Version 0.5.0 defaults to Middle. Existing `DualCameraConfig.defaults()` calls continue to work.
+Select High by replacing one configuration line:
+
+```java
+DualCameraConfig config = DualCameraConfig.defaults(DualCameraConfig.Mode.HIGH);
+```
+
+Middle and High request 15 and 30 FPS for both cameras, using 640×480 MJPEG, RGB NV21 and IR GRAY8.
+Existing pairing limits apply, and capture mode takes effect when opening a session.
 
 Obtain CAMERA runtime permission and construct the session on the main thread.
 Bind RGB/IR roles using VID/PID, a port profile or explicit user selection, never enumeration order.
@@ -152,7 +162,7 @@ Demo choices are common candidate settings, not a capability guarantee for the s
 | RGB | NV21 | Packed Y + VU; Y/U/V rowStride=width, UV pixelStride=2 | 460800 |
 | IR | GRAY8 | Packed intensity, rowStride=width | 307200 |
 
-Defaults are 640x480 MJPEG capture at 30 FPS per camera, at most 15 delivered pairs/s,
+Defaults use Middle, with 640x480 MJPEG capture at 15 FPS per camera, at most 15 delivered pairs/s,
 at most 50 ms between host frame receipts and at most 150 ms age per frame at delivery.
 Only RGB NV21 / IR GRAY8 are accepted by the paired API, up to portrait/landscape 1080p; dimensions may differ.
 Skew/age limits are adjustable software starting points, not calibrated liveness or sensor synchronization thresholds.

@@ -13,7 +13,7 @@ HiFace 的具体接入步骤与调试指标见 [HiFace Android 接入与本地�
 ```
 
 这只执行本地构建和本地 Maven 目录生成，不上传到远端、不运行 CI/CD。
-输出 `build/sdk/uvc-android-camera-0.4.0/` 及同名 ZIP，包含：
+输出 `build/sdk/uvc-android-camera-0.5.0/` 及同名 ZIP，包含：
 
 - `sdk/`：四 ABI Release AAR 与 Java 源码 JAR。
 - `maven-repository/`：固定版本的 AAR、POM、Gradle module 元数据和源码。
@@ -22,7 +22,7 @@ HiFace 的具体接入步骤与调试指标见 [HiFace Android 接入与本地�
 - 中英文说明、许可、`sdk-manifest.json` 和 `SHA256SUMS`。
 
 SDK 最低 API 21；Demo 最低 API 23。Demo APK 仅供开发演示，正式应用使用自己的签名。
-发布包见 [GitHub Release v0.4.0](https://github.com/FaceSDKPro/UVCAndroidCamera/releases/tag/v0.4.0)，尚未发布 Maven Central。ABI 可通过 `-PuvcAbis=arm64-v8a,armeabi-v7a` 选择；
+发布包见 [GitHub Release v0.5.0](https://github.com/FaceSDKPro/UVCAndroidCamera/releases/tag/v0.5.0)，尚未发布 Maven Central。ABI 可通过 `-PuvcAbis=arm64-v8a,armeabi-v7a` 选择；
 同一坐标的不同 ABI 构建应使用不同交付目录，不要混放到同一个依赖缓存。
 
 在解压目录执行 `shasum -a 256 -c SHA256SUMS` 校验交付文件。独立 Demo：
@@ -48,13 +48,22 @@ dependencyResolutionManagement {
 在应用模块添加：
 
 ```groovy
-dependencies { implementation 'com.facesdkpro:uvc-android-camera:0.4.0' }
+dependencies { implementation 'com.facesdkpro:uvc-android-camera:0.5.0' }
 ```
 
-也可把 `sdk/*.aar` 放入应用 `libs/`，使用 `implementation files('libs/uvc-android-camera-0.4.0.aar')`。
+也可把 `sdk/*.aar` 放入应用 `libs/`，使用 `implementation files('libs/uvc-android-camera-0.5.0.aar')`。
 库没有第三方 Java 运行时依赖；JNI 保留规则和原生许可随 AAR 打包。避免同时引入上游同名底层类或 `.so`。
 
 ## 打开双目会话
+
+0.5.0 默认使用 Middle，原 `DualCameraConfig.defaults()` 调用可继续使用。需要 High 时只替换一行：
+
+```java
+DualCameraConfig config = DualCameraConfig.defaults(DualCameraConfig.Mode.HIGH);
+```
+
+Middle / High 分别请求两路 15 / 30 FPS，均使用 640×480 MJPEG、RGB NV21 / IR GRAY8。
+配对上限继续使用原有配置，模式在打开会话时应用。
 
 先取得 CAMERA 运行时权限，再在主线程调用。设备角色由 VID/PID、端口或用户明确选择绑定；不能使用枚举顺序。
 `DualCameraSession.devices(context)` 只枚举，不创建常驻监控线程。一个会话管理两个独立 USB 设备，
@@ -144,7 +153,7 @@ Demo 提供常见候选参数；候选出现在界面上不表示当前相机一
 | RGB | NV21 | 紧凑 Y + VU；Y/U/V rowStride=width，UV pixelStride=2 | 460800 |
 | IR | GRAY8 | 紧凑单通道；rowStride=width | 307200 |
 
-默认采集 640×480、MJPEG、各 30 FPS；最多交付 15 对/秒。默认回调到达时间差不超过 50 ms，
+默认使用 Middle，采集 640×480、MJPEG、各 15 FPS；最多交付 15 对/秒。默认回调到达时间差不超过 50 ms，
 交付前每路数据不超过 150 ms。配置只接受 RGB NV21、IR GRAY8，分辨率最高为横/竖 1080p，
 两路可以具有不同分辨率。时间差/新鲜度是需要实测调整的起始设置，不是活体安全阈值。
 

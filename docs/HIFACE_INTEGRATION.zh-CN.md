@@ -15,19 +15,23 @@ Android Demo 的接入入口为 `UVCCameraFaceSearchActivity.java`。
 ```
 
 本地 Maven 目录为 `build/sdk-maven`，相机坐标为
-`com.facesdkpro:uvc-android-camera:0.4.0`。包含 USB 描述符边界检查和关闭阶段待执行控制操作的清理。
+`com.facesdkpro:uvc-android-camera:0.5.0`。包含 USB 描述符边界检查和关闭阶段待执行控制操作的清理。
 
 对于使用本地 Maven 的项目，在 Demo 的 Gradle 文件中更新坐标：
 
 ```kotlin
-implementation("com.facesdkpro:uvc-android-camera:0.4.0")
+implementation("com.facesdkpro:uvc-android-camera:0.5.0")
 ```
 
-HelloFace Android Demo 使用本地文件。把 Release 中的 `uvc-android-camera-0.4.0.aar`
+HelloFace Android Demo 使用本地文件。把0.5.0 发布包中的 `uvc-android-camera-0.5.0.aar`
 放入 `platforms/Android/demo/libs/` 并同步更新 `implementation(files(...))`。
 UVC AAR 进入 Demo，相机实现与 HiFace 算法 SDK 分开交付。
 
 ## 双目送帧与终态
+
+0.5.0 的默认双路采集为 Middle（15 FPS），已有 `DualCameraConfig.defaults()` 接入代码无需增加行数。
+切换 High（30 FPS）仅需改为 `DualCameraConfig.defaults(DualCameraConfig.Mode.HIGH)`。
+HelloFace 原有配对参数和旋转设置继续通过现有配置链传入。
 
 页面直接持有 `HiFaceSdk.builder(activity).lifecycleOwner(activity).build()`。
 先启动 HiFace 红外搜索，再在主线程创建并启动双目相机：

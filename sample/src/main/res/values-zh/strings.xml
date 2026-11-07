@@ -1,5 +1,6 @@
 <resources>
     <string name="app_name">UVC 双目相机</string>
+    <string name="capture_title">双目相机</string>
     <string name="dual_preview">双路预览</string>
     <string name="dual_preview_accessibility">设备预览与控制演示</string>
     <string name="capture_subtitle">RGB + IR · 双目采集控制台</string>

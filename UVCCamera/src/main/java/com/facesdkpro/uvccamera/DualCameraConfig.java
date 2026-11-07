@@ -4,6 +4,15 @@ import com.serenegiant.usb.UVCCamera;
 
 /** Exact RGB NV21 / IR GRAY8 modes and bounded software pairing limits. No liveness policy. */
 public final class DualCameraConfig {
+    /** Capture-rate presets for both cameras. */
+    public enum Mode {
+        MIDDLE(15), HIGH(30);
+
+        public final int fps;
+
+        Mode(int fps) { this.fps = fps; }
+    }
+
     private static final int DEFAULT_SKEW_MILLIS = 50;
     private static final int DEFAULT_AGE_MILLIS = 150;
     private static final int DEFAULT_PAIRS_PER_SECOND = 15;
@@ -55,11 +64,18 @@ public final class DualCameraConfig {
                 DEFAULT_PAIRS_PER_SECOND);
     }
 
-    /** 640x480 MJPEG, capture 30 FPS, deliver at most 15 pairs/s, 50 ms arrival skew, 150 ms age.
+    /** Middle: 640x480 MJPEG, capture 15 FPS, deliver at most 15 pairs/s, 50 ms skew, 150 ms age.
      * These software limits are starting points, not calibrated sensor synchronization limits. */
     public static DualCameraConfig defaults() {
-        return forStreams(StreamConfig.defaults(),
-                new StreamConfig(640, 480, 30, UVCCamera.UVC_VS_FRAME_MJPEG,
+        return defaults(Mode.MIDDLE);
+    }
+
+    /** Select Middle (15 FPS) or High (30 FPS) capture with the default pairing limits. */
+    public static DualCameraConfig defaults(Mode mode) {
+        return forStreams(
+                new StreamConfig(640, 480, mode.fps, UVCCamera.UVC_VS_FRAME_MJPEG,
+                        UVCCamera.PIXEL_FORMAT_NV21, 0),
+                new StreamConfig(640, 480, mode.fps, UVCCamera.UVC_VS_FRAME_MJPEG,
                         UVCCamera.PIXEL_FORMAT_GRAY8, 0));
     }
 }
