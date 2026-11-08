@@ -1,35 +1,37 @@
-# UVCAndroidCamera 0.5.0
+# UVCAndroidCamera 0.6.0
 
-Android SDK 坐标为 `com.facesdkpro:uvc-android-camera:0.5.0`。
+Android SDK 坐标为 `com.facesdkpro:uvc-android-camera:0.6.0`，供 HiFace 本地接入。
 
-- 默认使用 Middle，RGB / IR 均请求 640×480 MJPEG / 15 FPS。
-- High 请求两路 30 FPS，通过 `DualCameraConfig.defaults(DualCameraConfig.Mode.HIGH)` 选择。
-- 原有 `DualCameraConfig.defaults()` 默认选 Middle。默认接入增加 0 行，选择 High 替换 1 行。
-- RGB NV21 / IR GRAY8、软件配对和旋转继续通过现有配置链设置。
-- Demo 主页中文顶部标题为“双目相机”，采集参数默认选 Middle。
+- 修复 USB 设备断开时仅完成一个在途传输的问题。现在逐个排空该设备的全部在途传输，以 `LIBUSB_TRANSFER_NO_DEVICE` 完成回调；保留未提交传输和其他设备的传输。
+- 新增直接编译生产 libusb 源码的断开回归测试，覆盖多个传输、回调释放当前传输、无关设备、未提交传输和重复断开。USB 接口为模拟，不代表物理拔插验收。
+- 保留 0.5.0 的 Middle / High 接口：默认两路 640×480 MJPEG / 15 FPS，`DualCameraConfig.defaults(DualCameraConfig.Mode.HIGH)` 请求两路 30 FPS。
+- RGB NV21 / IR GRAY8、配对限制、旋转和 HiFace 同步送帧方式不变；已有 0.5.0 接入只需更新依赖版本。
+- Demo `versionName=0.6.0`、`versionCode=12`。
 
-模式在打开会话时应用，摄像头须支持对应的分辨率、传输格式和帧率。配对交付上限由已有配置决定。
+## 交付文件
 
-## 下载
+- `sdk/uvc-android-camera-0.6.0.aar`：直接放入 HiFace / HelloFace Demo 的 `libs/` 接入。
+- `sdk/uvc-android-camera-0.6.0-sources.jar`：Java 源码。
+- `maven-repository/`：固定 0.6.0 坐标的本地 Maven 仓库。
+- `demo/UvcCameraDemo-0.6.0.apk`：开发演示 APK。
+- `demo-source/`：依赖交付 AAR 的独立示例工程。
+- `sdk-manifest.json`、`SHA256SUMS` 和中英文文档。
 
-- `uvc-android-camera-0.5.0.aar` 供直接接入。
-- `uvc-android-camera-0.5.0.zip` 包含四 ABI AAR、本地 Maven 仓库、开发 Demo、独立示例和文档。
-- `uvc-android-camera-0.5.0-sources.jar` 提供 Java 源码。
-- `UvcCameraDemo-0.5.0.apk` 为开发演示，`versionCode=11`。
-- `SHA256SUMS` 提供附件校验值。
-
-验收范围见 `docs/VALIDATION.md`。性能、温度和连续运行证据见 `docs/PERFORMANCE.zh-CN.md`。
-
-SDK 28 项 Java 单测、14 项 Python 检查及 HelloFace Demo 113 项单测通过。发布 AAR 与已验收的
-Middle / High 候选逐字节一致，沿用其 84 项双目真机回归记录。
-AAR SHA-256 为 `2db5ac66fd84052878023f23ce2d2e76422b77277cf558038252f30cac895a32`。
+完整包为 `build/sdk/uvc-android-camera-0.6.0.zip`。接入步骤见
+[HiFace Android 接入与本地调试](HIFACE_INTEGRATION.zh-CN.md)，本轮实际验收范围见
+[验证记录](VALIDATION.md)。CI/CD 继续暂停。
 
 ## English
 
-Version 0.5.0 defaults dual capture to Middle at 15 FPS per camera. Select High at 30 FPS through
-`DualCameraConfig.defaults(DualCameraConfig.Mode.HIGH)`. Existing `defaults()` calls select Middle with zero
-additional integration lines. High requires replacing one configuration call. Both modes use 640×480 MJPEG,
-RGB NV21 and IR GRAY8. Existing pairing and rotation settings apply. The Chinese Demo header reads “双目相机”.
+Version 0.6.0 is a local SDK delivery for HiFace under
+`com.facesdkpro:uvc-android-camera:0.6.0`. USB disconnect handling now drains every in-flight
+transfer belonging to the detached device, completing each with `LIBUSB_TRANSFER_NO_DEVICE`.
+Unsubmitted transfers and transfers for other devices remain untouched. A regression test compiles
+the production libusb source with simulated USB callbacks, including callbacks that free transfers;
+this does not establish physical unplug acceptance.
 
-The release AAR is byte-identical to the previously tested Middle/High candidate, whose 84 device checks are retained.
-The SDK build has 28 Java tests and 14 Python checks, and the HelloFace Demo has 113 passing unit tests.
+The 0.5.0 Middle / High API, RGB NV21 / IR GRAY8, pairing limits, rotation and synchronous HiFace
+frame delivery are retained. Existing integrations only need to update the dependency version.
+The Demo uses `versionCode=12`. The bundle includes the four-ABI AAR, Java sources, local Maven
+repository, optimized developer Demo, standalone sample, documentation and SHA-256 checksums.
+Validation scope is recorded in `docs/VALIDATION.md`. CI/CD remains paused.

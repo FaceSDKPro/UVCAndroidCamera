@@ -63,8 +63,17 @@ def main():
         objects.append(str(target))
     base = command[:command.index(str(ROOT / 'tools/native/frame_pipeline_test.cpp'))]
     tests = ['callback_ownership_test', 'jni_registration_test', 'frame_memory_test', 'stream_failure_test', 'frame_rotation_test',
-             'preview_startup_test', 'status_shutdown_test', 'descriptor_bounds_test']
+             'preview_startup_test', 'status_shutdown_test', 'descriptor_bounds_test', 'disconnect_drain_test']
     for test in tests:
+        if test == 'disconnect_drain_test':
+            usb_flags = cflags + ['-I' + str(native / 'libusb/android'), '-I' + str(native / 'libusb/libusb')]
+            compiler = str(host / 'bin/aarch64-linux-android23-clang')
+            usb_object = output / 'usb_io.o'
+            subprocess.run([compiler] + usb_flags + ['-c', str(native / 'libusb/libusb/io.c'), '-o', str(usb_object)], check=True)
+            subprocess.run([compiler] + usb_flags + [str(ROOT / 'tools/native/disconnect_drain_test.c'), str(usb_object),
+                           '-Wl,--wrap=usbi_handle_transfer_completion,--gc-sections,-z,max-page-size=16384',
+                           '-o', str(output / test)], check=True)
+            continue
         cmd = base + [str(ROOT / ('tools/native/' + test + '.cpp'))]
         if test == 'callback_ownership_test':
             cmd += [str(native / 'UVCCamera/UVCButtonCallback.cpp'), str(native / 'UVCCamera/UVCStatusCallback.cpp')]

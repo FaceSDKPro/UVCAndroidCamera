@@ -13,7 +13,7 @@ HiFace 的具体接入步骤与调试指标见 [HiFace Android 接入与本地�
 ```
 
 这只执行本地构建和本地 Maven 目录生成，不上传到远端、不运行 CI/CD。
-输出 `build/sdk/uvc-android-camera-0.5.0/` 及同名 ZIP，包含：
+输出 `build/sdk/uvc-android-camera-0.6.0/` 及同名 ZIP，包含：
 
 - `sdk/`：四 ABI Release AAR 与 Java 源码 JAR。
 - `maven-repository/`：固定版本的 AAR、POM、Gradle module 元数据和源码。
@@ -22,7 +22,7 @@ HiFace 的具体接入步骤与调试指标见 [HiFace Android 接入与本地�
 - 中英文说明、许可、`sdk-manifest.json` 和 `SHA256SUMS`。
 
 SDK 最低 API 21；Demo 最低 API 23。Demo APK 仅供开发演示，正式应用使用自己的签名。
-发布包见 [GitHub Release v0.5.0](https://github.com/FaceSDKPro/UVCAndroidCamera/releases/tag/v0.5.0)，尚未发布 Maven Central。ABI 可通过 `-PuvcAbis=arm64-v8a,armeabi-v7a` 选择；
+0.6.0 以本地 SDK 包交付给 HiFace，使用包内 AAR 或 Maven 仓库，未发布 Maven Central。ABI 可通过 `-PuvcAbis=arm64-v8a,armeabi-v7a` 选择；
 同一坐标的不同 ABI 构建应使用不同交付目录，不要混放到同一个依赖缓存。
 
 在解压目录执行 `shasum -a 256 -c SHA256SUMS` 校验交付文件。独立 Demo：
@@ -48,15 +48,15 @@ dependencyResolutionManagement {
 在应用模块添加：
 
 ```groovy
-dependencies { implementation 'com.facesdkpro:uvc-android-camera:0.5.0' }
+dependencies { implementation 'com.facesdkpro:uvc-android-camera:0.6.0' }
 ```
 
-也可把 `sdk/*.aar` 放入应用 `libs/`，使用 `implementation files('libs/uvc-android-camera-0.5.0.aar')`。
+也可把 `sdk/*.aar` 放入应用 `libs/`，使用 `implementation files('libs/uvc-android-camera-0.6.0.aar')`。
 库没有第三方 Java 运行时依赖；JNI 保留规则和原生许可随 AAR 打包。避免同时引入上游同名底层类或 `.so`。
 
 ## 打开双目会话
 
-0.5.0 默认使用 Middle，原 `DualCameraConfig.defaults()` 调用可继续使用。需要 High 时只替换一行：
+0.6.0 继续默认使用 Middle，原 `DualCameraConfig.defaults()` 调用可继续使用。需要 High 时只替换一行：
 
 ```java
 DualCameraConfig config = DualCameraConfig.defaults(DualCameraConfig.Mode.HIGH);

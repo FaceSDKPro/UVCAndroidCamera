@@ -13,7 +13,7 @@ Use JDK 17, Android SDK 36 and NDK 29.0.14206865 at the source root:
 ```
 
 This builds locally and creates a local Maven directory. It does not upload artifacts or run CI/CD.
-`build/sdk/uvc-android-camera-0.5.0/` and its ZIP contain:
+`build/sdk/uvc-android-camera-0.6.0/` and its ZIP contain:
 
 - `sdk/`: four-ABI Release AAR and Java sources JAR.
 - `maven-repository/`: fixed-version AAR, POM, Gradle module metadata and sources.
@@ -22,7 +22,7 @@ This builds locally and creates a local Maven directory. It does not upload arti
 - Bilingual documentation, licenses, `sdk-manifest.json` and `SHA256SUMS`.
 
 Minimum API levels are 21 for the SDK and 23 for the Demo. Use your own application signing for production.
-Published packages are available from [GitHub Release v0.5.0](https://github.com/FaceSDKPro/UVCAndroidCamera/releases/tag/v0.5.0). Maven Central publication is not available.
+Version 0.6.0 is delivered as a local SDK bundle for HiFace. Use its AAR or bundled Maven repository; it is not published to Maven Central.
 Select ABIs with `-PuvcAbis=arm64-v8a,armeabi-v7a` if needed. Keep builds with different ABI sets in separate delivery directories;
 do not mix different bytes under the same coordinates in a dependency cache.
 
@@ -49,17 +49,17 @@ dependencyResolutionManagement {
 Then add the application dependency:
 
 ```groovy
-dependencies { implementation 'com.facesdkpro:uvc-android-camera:0.5.0' }
+dependencies { implementation 'com.facesdkpro:uvc-android-camera:0.6.0' }
 ```
 
 Alternatively, copy the AAR into application `libs/` and use
-`implementation files('libs/uvc-android-camera-0.5.0.aar')`.
+`implementation files('libs/uvc-android-camera-0.6.0.aar')`.
 There are no third-party Java runtime dependencies. JNI consumer rules and native license notices are embedded.
 Do not also package upstream copies of the same classes or native libraries.
 
 ## Open a paired session
 
-Version 0.5.0 defaults to Middle. Existing `DualCameraConfig.defaults()` calls continue to work.
+Version 0.6.0 retains Middle as the default. Existing `DualCameraConfig.defaults()` calls continue to work.
 Select High by replacing one configuration line:
 
 ```java

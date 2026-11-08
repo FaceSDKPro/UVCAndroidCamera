@@ -1,5 +1,21 @@
 # 验证记录
 
+## SDK 0.6.0 本地交付验收（2026-11-08）
+
+- 以 `com.facesdkpro:uvc-android-camera:0.6.0` 交付给 HiFace，Demo `versionCode=12`。纳入 libusb 断开时排空全部在途传输的修复，不增加逐帧检查、轮询或超时强制释放；Middle / High、Java API 和同步送帧方式保持兼容。
+- 本地 `prepareSdk`、R8 Demo / deviceTest 构建、**28 项 SDK Java 单测、14 项 Python 检查、库 Release / Demo Lint**通过，测试失败/错误/跳过均为 0。20 个原生库的导出、依赖、体积、安全属性和 16 KB ELF 对齐，以及两个 APK 的原生字节一致性、16 KB ZIP 对齐和官方 `zipalign` 复核通过。
+- 在 Xiaomi 2211133C / Android 16 / arm64-v8a 执行本次 AAR 的原生合成/故障回归：120 组 YUYV、10 组 JPEG、144 组旋转和 1 组奇数灰度；JNI 回调/注册、内存和 RGB 步幅、18 组 USB 流故障、29 组预览/启动、7 组状态关闭、9 组描述符边界检查全部通过。新增 **4 组断开排空检查**通过，覆盖多个在途传输、回调释放当前对象、未提交/其他设备传输及重复断开。USB/JNI 故障使用模拟接口，不记为物理拔插或真实 JVM 故障验收；结束后复查核心源码和 AAR 摘要未变。
+- 解压完整 SDK 后全部交付文件 SHA-256 校验通过；独立 `demo-source` 离线构建、Lint 通过，确认不含 `:UVCCamera` 源码模块，实际解析 0.6.0 Maven 坐标及目标 AAR。
+- AAR 与 HiFace 当前本地 `0.5.0-hotplug.1` 候选**逐字节一致**，Java 类和全部 20 个原生库一致。HiFace 当前 Demo 通过临时 Gradle 初始化脚本消费 0.6.0 AAR 及已核验的 HiFace 0.8.8 Maven 二进制，Debug 构建与 Debug/Release SDK 来源一致性检查通过；APK 中 ARM 双 ABI 的 **10/10 个相机原生库**与本次 AAR 一致。HiFace 源码/依赖文件未修改。
+- 初次直接构建 HiFace 0.8.9 源码被缺失的 `0.8.9.hftrial` 证书阻断；改用已核验二进制进行消费构建。尝试以该发布二进制运行私有 Demo 单测时，测试依赖未公开的 `RgbIrContract`，编译未通过，未计为本轮单测通过。中间脚本的离线依赖/SDK 来源配置失败记录亦保留，最终消费构建使用原有 Maven 路径并通过来源检查，不关闭门禁。
+
+四 ABI 原生合计 **1,901,468 字节**，比 0.5.0 增加 **32 字节**；AAR **945,719 字节**。沿用 1,901,600 字节总量及逐库预算，没有调整导出或安全门禁。
+核心源码/构建输入 SHA-256：`c4ec07c3cf20f0e42f0a8892164a6e7a1bc4a8a8238864967fed1525ad1861dc`。
+AAR SHA-256：`8b40c519b6e00063bfe80961236cfa704b55727bb4201dd7d3874ee2e6166100`。
+
+交付目录为 `build/sdk/uvc-android-camera-0.6.0/`，完整包为同名 ZIP；最终清单由提交后的干净源码生成。
+日志、绑定检查和中间失败记录位于仓库外 `/tmp/uvc-sdk-0.6.0/`。本轮未重跑双目真机采集、物理拔插、长稳、CPU/功耗对照或 16 KB 页设备运行，不将历史设备记录当成本轮新测量。CI/CD 保持暂停，仅提交推送代码及生成本地 SDK，不创建 tag/Release 或执行部署。
+
 ## SDK 0.5.0 发布验收（2026-11-07）
 
 - 正式交付 Middle / High 两档采集。默认 `DualCameraConfig.defaults()` 请求两路 15 FPS，显式 `defaults(Mode.HIGH)` 请求两路 30 FPS。默认接入增加 0 行，选择 High 替换 1 行。Demo 中文顶部标题为“双目相机”，`versionCode=11`。

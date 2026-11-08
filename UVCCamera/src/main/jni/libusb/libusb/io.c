@@ -2809,7 +2809,7 @@ void usbi_handle_disconnect(struct libusb_device_handle *dev_handle)
 	 *    flying_transfers_lock to remove it, so we ignore it
 	 */
 
-//	while (1) {
+	while (1) {
 		to_cancel = NULL;
 		usbi_mutex_lock(&ctx->flying_transfers_lock);
 		for_each_transfer(ctx, cur) {
@@ -2835,5 +2835,5 @@ void usbi_handle_disconnect(struct libusb_device_handle *dev_handle)
 		usbi_backend.clear_transfer_priv(to_cancel);
 		usbi_mutex_unlock(&to_cancel->lock);
 		usbi_handle_transfer_completion(to_cancel, LIBUSB_TRANSFER_NO_DEVICE);
-//	}
+	}
 }
