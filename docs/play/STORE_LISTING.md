@@ -26,7 +26,7 @@ Camera frames are processed locally for live preview. The app does not record vi
 
 **Release notes**
 
-Preview and configure separate RGB and IR USB cameras. The interface follows the device language and supports English and Simplified Chinese.
+Middle (15 FPS) is now the default; choose High (30 FPS) in capture settings. Improved camera startup, preview lifecycle and USB disconnect cleanup.
 
 ## 简体中文
 
@@ -52,4 +52,4 @@ UVC 双目相机是一款在 Android 上预览和配置两个独立 USB 摄像�
 
 **版本说明**
 
-支持独立 RGB 和 IR USB 摄像头的预览与配置。界面支持英文和简体中文，随系统语言显示。
+默认以 Middle（15 FPS）采集，可在设置中选择 High（30 FPS）。改进摄像头启动、预览生命周期及 USB 断连时的资源释放。

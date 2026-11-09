@@ -2,7 +2,7 @@
 
 ## 构建与签名
 
-Play 和本地 APK 的应用 ID 均为 `com.helloface.uvccamera`。旧包名的下载 APK 可以与新版并存。新版若需覆盖安装，前后两次安装的签名须一致。首次在 Play Console 创建应用时核对包名注册状态。当前 `versionName` 为 0.3.2，`versionCode` 为 7，`targetSdk` 为 36。每次上传新版本前递增 Play 已使用的 `versionCode`。
+Play 和本地 APK 的应用 ID 均为 `com.helloface.uvccamera`。旧包名的下载 APK 可以与新版并存。新版若需覆盖安装，前后两次安装的签名须一致。首次在 Play Console 创建应用时核对包名注册状态。当前 `versionName` 为 0.6.0，`versionCode` 为 12，`targetSdk` 为 36。每次上传新版本前递增 Play 已使用的 `versionCode`。
 
 本地审查构建：
 
@@ -63,6 +63,10 @@ bundletool dump config --bundle=sample/build/outputs/bundle/play/sample-play.aab
 4. 核对开发者身份和包名注册。适用的新个人账号需至少 12 人连续加入封闭测试 14 天，再申请正式发布权限。
 
 ## 本地验证记录
+
+2026-11-09，0.6.0（`versionCode=12`）Play AAB/APK 构建、28 项 SDK Java 单测和 Play Lint 通过，Lint 有 9 条已有警告、无错误。AAB 与原上传证书匹配，最终包仅请求 CAMERA 权限，含中英文及官网隐私入口，未包含诊断 Activity。四 ABI 共 20 个原生库的产物审计、16 KB ELF/ZIP 对齐及官方 `zipalign` 复核通过。保留 SDK 0.6.0 的既有真机验收记录，本次发布构建时没有已连接设备，未重跑双目采集或物理拔插。
+
+同日，0.6.0（12）已上传并提交 Google Play 正式版审核，设置为向全部 178 个投放项（含“其他国家/地区”）100% 推出，审核通过后自动发布。构建源码为 `383d3b6`，AAB SHA-256 为 `b5a702dbf713e51623adfdfb39745b6a5346c979b4462e8d8682c68c3f246250`。签名包、映射和原生符号保存在本机 `build/play-submission-0.6.0-v12/`。
 
 2026-11-06，Play AAB 构建通过，Play Lint 无错误，保留已有告警。已生成独立的本机 RSA 4096 上传密钥，AAB 签名与公开上传证书匹配。
 
