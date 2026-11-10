@@ -105,8 +105,7 @@ public final class DualCameraSession implements AutoCloseable {
         requireMain();
         if (context == null || config == null || listener == null || frames == null)
             throw new NullPointerException("session argument");
-        if (!UvcCameraManager.isCamera(rgbDevice) || !UvcCameraManager.isCamera(irDevice)
-                || rgbDevice.getDeviceName().equals(irDevice.getDeviceName()))
+        if (!CameraSelection.isPair(rgbDevice, irDevice))
             throw new IllegalArgumentException("Select two distinct UVC devices for RGB and IR");
         if (rgbPreview != null && !rgbPreview.isValid() || irPreview != null && !irPreview.isValid())
             throw new IllegalArgumentException("Preview Surface is invalid");
@@ -136,10 +135,10 @@ public final class DualCameraSession implements AutoCloseable {
                 usbDrained = false;
                 openingDevice = rgbDevice;
                 rgb = manager.open(rgbDevice, config.rgb, rgbPreview,
-                        (camera, frame) -> dispatcher.offer(true, frame));
+                        (camera, frame) -> dispatcher.offer(true, frame), actual -> dispatcher.configure(true, actual));
                 openingDevice = irDevice;
                 ir = manager.open(irDevice, config.ir, irPreview,
-                        (camera, frame) -> dispatcher.offer(false, frame));
+                        (camera, frame) -> dispatcher.offer(false, frame), actual -> dispatcher.configure(false, actual));
             } catch (RuntimeException | LinkageError error) {
                 // Including the first/second open failing: callers already own a handle and always
                 // receive completion. No lost partially-constructed session or premature Surface release.
@@ -181,6 +180,13 @@ public final class DualCameraSession implements AutoCloseable {
     }
 
     public boolean isClosed() { return closed.get(); }
+    /** Negotiated modes after onReady. Requests and rotations remain available in config. */
+    public DualCameraConfig actualConfig() {
+        return new DualCameraConfig(rgb == null ? config.rgb : rgb.actualConfig(),
+                ir == null ? config.ir : ir.actualConfig(), config.maxPairSkewMillis,
+                config.maxFrameAgeMillis, config.maxPairsPerSecond,
+                config.rgbRotationDegrees, config.irRotationDegrees);
+    }
     /** Null for an explicit normal close. Available after onClosed as well. */
     public CameraFailure failure() { return lastFailure; }
     public long receivedFrames(Role role) {

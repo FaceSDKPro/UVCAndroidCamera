@@ -15,23 +15,31 @@ Android Demo 的接入入口为 `UVCCameraFaceSearchActivity.java`。
 ```
 
 本地 Maven 目录为 `build/sdk-maven`，相机坐标为
-`com.facesdkpro:uvc-android-camera:0.6.0`。包含 USB 描述符边界检查、关闭阶段待执行控制操作的清理，以及设备断开时全部在途传输的排空修复。
+`com.facesdkpro:uvc-android-camera:0.6.5`。包含 USB 描述符边界检查、关闭阶段待执行控制操作的清理，以及设备断开时全部在途传输的排空修复。
 
 对于使用本地 Maven 的项目，在 Demo 的 Gradle 文件中更新坐标：
 
 ```kotlin
-implementation("com.facesdkpro:uvc-android-camera:0.6.0")
+implementation("com.facesdkpro:uvc-android-camera:0.6.5")
 ```
 
-HelloFace Android Demo 使用本地文件。把 0.6.0 交付包中的 `uvc-android-camera-0.6.0.aar`
+HelloFace Android Demo 使用本地文件。把 0.6.5 交付包中的 `uvc-android-camera-0.6.5.aar`
 放入 `platforms/Android/demo/libs/` 并同步更新 `implementation(files(...))`。
 UVC AAR 进入 Demo，相机实现与 HiFace 算法 SDK 分开交付。
 
 ## 双目送帧与终态
 
-0.6.0 继续默认使用双路 Middle（15 FPS），已有 `DualCameraConfig.defaults()` 接入代码无需增加行数。
-切换 High（30 FPS）仅需改为 `DualCameraConfig.defaults(DualCameraConfig.Mode.HIGH)`。
+默认使用双路 Middle，优先 15 FPS；High 优先 30 FPS。设备不支持时自动选择同格式最接近的分辨率和帧率。
+已有 `DualCameraConfig.defaults()` 接入无需增加匹配逻辑；High 使用 `DualCameraConfig.defaults(DualCameraConfig.Mode.HIGH)`。
+`onReady` 后可读取 `session.actualConfig()`，帧尺寸以 `CameraFrame` 的实际元数据为准。
 HelloFace 原有配对参数和旋转设置继续通过现有配置链传入。
+
+分辨率默认中配就近 640×480；高配使用 `.withResolution(StreamConfig.Resolution.HIGH)`，就近 1280×720，
+不会改变 Middle / High 的 FPS 偏好及自动匹配。角色可由 `CameraSelection.suggest(DualCameraSession.devices(context))`
+提供初始推荐：优先当前手动绑定，再按已验证 VID/PID、明确 RGB / IR / NIR 等名称匹配。
+无法确定的角色为 `null`，需要用户或已验收的设备型号配置明确选择；不能把枚举顺序或灰度画面当作传感器角色。
+自定义采集偏好使用 `StreamConfig.preferred(role, resolution, fps, transport)`，SDK 按角色配置输出格式并自动匹配；
+仅调算法交付频率使用 `withMaxPairsPerSecond(...)`，无需在 Demo 重复写默认配对时间限制。
 
 页面直接持有 `HiFaceSdk.builder(activity).lifecycleOwner(activity).build()`。
 先启动 HiFace 红外搜索，再在主线程创建并启动双目相机：

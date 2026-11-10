@@ -44,6 +44,7 @@ public final class UvcCameraManager implements AutoCloseable {
     }
     public interface FrameListener { void onFrame(Camera camera, CameraFrame frame); }
     public interface ControlAction { void run(UVCControl control); }
+    interface ConfigurationListener { void onConfigured(StreamConfig actual); }
 
     private final Listener listener;
     private final UsbManager usb;
@@ -130,12 +131,17 @@ public final class UvcCameraManager implements AutoCloseable {
 
     /** Surface may be null for analysis only. Invalid Surfaces fail before enqueueing; ownership stays with the caller. */
     public Camera open(UsbDevice device, StreamConfig config, Surface preview, FrameListener frames) {
+        return open(device, config, preview, frames, null);
+    }
+
+    Camera open(UsbDevice device, StreamConfig config, Surface preview, FrameListener frames,
+            ConfigurationListener configured) {
         if (closed.get()) throw new IllegalStateException("Manager closed");
         if (!isCamera(device)) throw new IllegalArgumentException("Device has no UVC interface");
         if (config == null) throw new NullPointerException("config");
         if (frames == null && preview == null) throw new IllegalArgumentException("A frame listener or preview is required");
         if (preview != null && !preview.isValid()) throw new IllegalArgumentException("Preview Surface is invalid");
-        Camera camera = new Camera(device, config, preview, frames);
+        Camera camera = new Camera(device, config, preview, frames, configured);
         boolean accepted = worker.post(() -> {
             if (closed.get() || camera.closed.get()) { camera.closed.set(true); return; }
             if (cameras.containsKey(device.getDeviceName())) {
@@ -180,16 +186,23 @@ public final class UvcCameraManager implements AutoCloseable {
     private void start(Camera session, USBMonitor.UsbControlBlock control) {
         try {
             if (session.preview != null && !session.preview.isValid()) throw new IllegalStateException("Preview Surface is invalid");
-            StreamConfig config = session.config;
-            UVCCamera camera = new UVCCamera(new UVCParam(config.size(), config.quirks | UVCCamera.getRecommendedPlatformQuirks()));
+            StreamConfig requested = session.config;
+            UVCCamera camera = new UVCCamera(new UVCParam(requested.size(),
+                    requested.quirks | UVCCamera.getRecommendedPlatformQuirks()));
             session.nativeCamera = camera;
-            int status = camera.open(control);
+            int status = camera.open(control, supported -> {
+                StreamConfig actual = requested.resolve(supported);
+                if (actual == null) return null;
+                session.actualConfig = actual;
+                return actual.size();
+            });
             if (status != 0) {
-                String message = "UVC open/mode negotiation failed: " + status;
-                fail(session, new CameraFailure(CameraFailure.Code.OPEN_FAILED, session.device,
-                        message, new IllegalStateException(message), status));
+                String message = "UVC open failed for " + requested + ": " + status;
+                fail(session, CameraFailure.openFailed(session.device, message, status));
                 return;
             }
+            StreamConfig config = session.actualConfig;
+            if (session.configured != null) session.configured.onConfigured(config);
             if (session.preview != null) camera.setPreviewDisplay(session.preview);
             if (session.frames != null) camera.setFrameCallback(new ITimestampedFrameCallback() {
               @Override public void onFrame(ByteBuffer buffer, long receivedTime, long nativeSequence) {
@@ -208,8 +221,7 @@ public final class UvcCameraManager implements AutoCloseable {
             status = camera.startPreviewWithStatus();
             if (status != 0) {
                 String message = "UVC stream startup failed: " + status;
-                fail(session, new CameraFailure(CameraFailure.Code.OPEN_FAILED, session.device,
-                        message, new IllegalStateException(message), status));
+                fail(session, CameraFailure.openFailed(session.device, message, status));
                 return;
             }
             emit(() -> { if (!session.closed.get()) listener.onOpened(session); });
@@ -275,9 +287,12 @@ public final class UvcCameraManager implements AutoCloseable {
 
     public final class Camera implements AutoCloseable {
         public final UsbDevice device;
+        /** Original request. Use actualConfig() after onOpened for negotiated capture metadata. */
         public final StreamConfig config;
+        private volatile StreamConfig actualConfig;
         private final Surface preview;
         private final FrameListener frames;
+        private final ConfigurationListener configured;
         private final AtomicBoolean closed = new AtomicBoolean();
         private final AtomicLong frameCount = new AtomicLong();
         private volatile UVCCamera nativeCamera;
@@ -285,10 +300,14 @@ public final class UvcCameraManager implements AutoCloseable {
         Throwable failureCause;
         volatile CameraFailure failure;
         private boolean closedDelivered; // command thread only
-        private Camera(UsbDevice device, StreamConfig config, Surface preview, FrameListener frames) {
-            this.device = device; this.config = config; this.preview = preview; this.frames = frames;
+        private Camera(UsbDevice device, StreamConfig config, Surface preview, FrameListener frames,
+                ConfigurationListener configured) {
+            this.device = device; this.config = config; this.actualConfig = config;
+            this.preview = preview; this.frames = frames; this.configured = configured;
         }
         public boolean isClosed() { return closed.get(); }
+        /** Actual capture mode after onOpened; initially the request. */
+        public StreamConfig actualConfig() { return actualConfig; }
         public CameraFailure failure() { return failure; }
         public long receivedFrames() {
             UVCCamera camera = nativeCamera;

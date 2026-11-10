@@ -2,9 +2,9 @@ package com.facesdkpro.uvccamera;
 
 import com.serenegiant.usb.UVCCamera;
 
-/** Exact RGB NV21 / IR GRAY8 modes and bounded software pairing limits. No liveness policy. */
+/** RGB NV21 / IR GRAY8 requests and bounded software pairing limits. No liveness policy. */
 public final class DualCameraConfig {
-    /** Capture-rate presets for both cameras. */
+    /** Preferred capture rates; defaults select the nearest advertised rate when unavailable. */
     public enum Mode {
         MIDDLE(15), HIGH(30);
 
@@ -42,7 +42,8 @@ public final class DualCameraConfig {
                 || maxFrameAgeMillis > 1000 || maxPairsPerSecond < 1 || maxPairsPerSecond > 120) {
             throw new IllegalArgumentException("Invalid pairing skew, age or delivery rate");
         }
-        this.rgb = rgb; this.ir = ir; this.maxPairSkewMillis = maxPairSkewMillis;
+        this.rgb = rgb.boundedTo(1920, 1080); this.ir = ir.boundedTo(1920, 1080);
+        this.maxPairSkewMillis = maxPairSkewMillis;
         this.maxFrameAgeMillis = maxFrameAgeMillis; this.maxPairsPerSecond = maxPairsPerSecond;
         this.rgbRotationDegrees = rgbRotationDegrees; this.irRotationDegrees = irRotationDegrees;
     }
@@ -58,24 +59,36 @@ public final class DualCameraConfig {
                 rgbRotationDegrees, irRotationDegrees);
     }
 
+    /** Change delivery rate without repeating or resetting timing limits and rotations. */
+    public DualCameraConfig withMaxPairsPerSecond(int pairsPerSecond) {
+        return withPairingLimits(maxPairSkewMillis, maxFrameAgeMillis, pairsPerSecond);
+    }
+
+    /** Medium prefers 640x480, High prefers 1280x720; capture FPS and pair limits are unchanged. */
+    public DualCameraConfig withResolution(StreamConfig.Resolution resolution) {
+        return new DualCameraConfig(rgb.withResolution(resolution), ir.withResolution(resolution),
+                maxPairSkewMillis, maxFrameAgeMillis, maxPairsPerSecond, rgbRotationDegrees, irRotationDegrees);
+    }
+
     /** Pair caller-selected RGB NV21 and IR GRAY8 streams with the default software limits. */
     public static DualCameraConfig forStreams(StreamConfig rgb, StreamConfig ir) {
         return new DualCameraConfig(rgb, ir, DEFAULT_SKEW_MILLIS, DEFAULT_AGE_MILLIS,
                 DEFAULT_PAIRS_PER_SECOND);
     }
 
-    /** Middle: 640x480 MJPEG, capture 15 FPS, deliver at most 15 pairs/s, 50 ms skew, 150 ms age.
+    /** Middle prefers 640x480 MJPEG at 15 FPS; choose the closest advertised mode if unavailable.
+     * Deliver at most 15 pairs/s, 50 ms skew, 150 ms age.
      * These software limits are starting points, not calibrated sensor synchronization limits. */
     public static DualCameraConfig defaults() {
         return defaults(Mode.MIDDLE);
     }
 
-    /** Select Middle (15 FPS) or High (30 FPS) capture with the default pairing limits. */
+    /** Middle prefers 15 FPS, High prefers 30 FPS. Both adapt to camera capabilities at open. */
     public static DualCameraConfig defaults(Mode mode) {
         return forStreams(
-                new StreamConfig(640, 480, mode.fps, UVCCamera.UVC_VS_FRAME_MJPEG,
-                        UVCCamera.PIXEL_FORMAT_NV21, 0),
-                new StreamConfig(640, 480, mode.fps, UVCCamera.UVC_VS_FRAME_MJPEG,
-                        UVCCamera.PIXEL_FORMAT_GRAY8, 0));
+                StreamConfig.preferred(DualCameraSession.Role.RGB, StreamConfig.Resolution.MIDDLE,
+                        mode.fps, StreamConfig.Transport.MJPEG),
+                StreamConfig.preferred(DualCameraSession.Role.IR, StreamConfig.Resolution.MIDDLE,
+                        mode.fps, StreamConfig.Transport.MJPEG));
     }
 }

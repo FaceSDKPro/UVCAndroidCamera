@@ -1,0 +1,54 @@
+{
+  "defaultLocale": "en-US",
+  "launcherArtwork": "sample/src/main/res/drawable-nodpi/ic_launcher_foreground.png",
+  "background": "light blue-white",
+  "screenshotVersion": "0.6.5",
+  "screenshotVersionCode": 17,
+  "captureState": "No external UVC cameras connected; real app UI",
+  "assets": [
+    {
+      "file": "docs/play/assets/feature-en-US.jpg",
+      "sha256": "155d4427bee0511d3b655f021d94459aa870755febb3a25dd0a7fd3f6db5477b"
+    },
+    {
+      "file": "docs/play/assets/feature-zh-CN.jpg",
+      "sha256": "7c2f6d210ee3242e8233ce16094ec26dec405a92f6b8ceb53085aed8b28422c0"
+    },
+    {
+      "file": "docs/play/assets/icon-512.png",
+      "sha256": "c93af4691b852a0cfb3d829e01d036d7a9e12ebb80f5842db93ddf6676b01e62"
+    },
+    {
+      "file": "docs/play/assets/screenshots/en-US/01-home.jpg",
+      "sha256": "bc8d2f4894ec7db3aa9bcc2e914868db54de2c0100410a8181111a247009a1ea"
+    },
+    {
+      "file": "docs/play/assets/screenshots/en-US/02-dual.jpg",
+      "sha256": "d8aed107b81064d58d57e509c5f8fa9e904741643e7940fe2cd2fa8e0bba6ec1"
+    },
+    {
+      "file": "docs/play/assets/screenshots/en-US/03-settings.jpg",
+      "sha256": "a5e309006faea6e5bff5d0f42b9b1e9957dc608eade1f1a36059e0cc748cef58"
+    },
+    {
+      "file": "docs/play/assets/screenshots/en-US/04-landscape.jpg",
+      "sha256": "7c15294b66730fef25890bb9e2da03ac9d5ec9992f4f37d25fc5193501a2d477"
+    },
+    {
+      "file": "docs/play/assets/screenshots/zh-CN/01-home.jpg",
+      "sha256": "6ffccc64c172025a27b9bebe05ef35d53bdda0888912efadba1819ff815a3788"
+    },
+    {
+      "file": "docs/play/assets/screenshots/zh-CN/02-dual.jpg",
+      "sha256": "3ac7ed859e587a2df92d130696e191a2f1ce0c117988123eee720ecf3d762962"
+    },
+    {
+      "file": "docs/play/assets/screenshots/zh-CN/03-settings.jpg",
+      "sha256": "4b0f82de627843b2ca75cd6b8a897c6069c15ba5129f655adcef2951b4e72bc9"
+    },
+    {
+      "file": "docs/play/assets/screenshots/zh-CN/04-landscape.jpg",
+      "sha256": "84b306376a54c0986e3654434cf75f956b9ca9fb73b0cacc8a7ed9f20228e2ea"
+    }
+  ]
+}

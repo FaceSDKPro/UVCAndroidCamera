@@ -26,8 +26,8 @@ import android.widget.TextView;
 import com.facesdkpro.uvccamera.CameraFailure;
 import com.facesdkpro.uvccamera.PreviewTransform;
 import com.facesdkpro.uvccamera.StreamConfig;
+import com.facesdkpro.uvccamera.DualCameraSession.Role;
 import com.facesdkpro.uvccamera.UvcCameraManager;
-import com.serenegiant.usb.UVCCamera;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -91,17 +91,24 @@ public final class MainActivity extends Activity {
     public void onCreate(Bundle state) {
         super.onCreate(state);
         ui = new DemoUi(this);
-        LinearLayout screen = ui.column();
-        screen.addView(
-                ui.header(
-                        getString(R.string.dual_video_preview),
-                        getString(R.string.preview_subtitle),
-                        ui.button(getString(R.string.back), R.drawable.ic_back, false, this::finish)));
-        status = ui.status(getString(R.string.connect_to_configure));
-        screen.addView(status, ui.margin(-1, -2, 20, 0, 20, 14));
         int width = getResources().getConfiguration().screenWidthDp,
                 height = getResources().getConfiguration().screenHeightDp;
-        boolean compact = height < 520 || width < 600;
+        boolean shortLandscape = width >= 600 && width > height && height < 520;
+        LinearLayout screen = ui.column();
+        status = shortLandscape ? ui.label(getString(R.string.connect_to_configure), 11, ui.muted)
+                : ui.status(getString(R.string.connect_to_configure));
+        if (shortLandscape) {
+            screen.addView(ui.compactHeader(getString(R.string.dual_video_preview), status,
+                    ui.iconButton(getString(R.string.back), R.drawable.ic_back, this::finish)));
+        } else {
+            screen.addView(
+                    ui.header(
+                            getString(R.string.dual_video_preview),
+                            getString(R.string.preview_subtitle),
+                            ui.button(getString(R.string.back), R.drawable.ic_back, false, this::finish)));
+            screen.addView(status, ui.margin(-1, -2, 20, 0, 20, 14));
+        }
+        boolean compact = !shortLandscape && (height < 520 || width < 600);
         boolean sideBySide = width >= 600;
         LinearLayout streams = sideBySide ? ui.row() : ui.column();
         for (int i = 0; i < 2; i++) {
@@ -109,7 +116,7 @@ public final class MainActivity extends Activity {
             String role = i == 0 ? "RGB" : "IR";
             int color = i == 0 ? ui.rgb : ui.ir;
             devices[i] = ui.spinner(getString(R.string.device_for_role, role));
-            settings[i] = new CaptureSettingsView(this, role);
+            settings[i] = new CaptureSettingsView(this, i == 0 ? Role.RGB : Role.IR);
             if (state != null) settings[i].restore(state.getIntArray("capture_" + i));
             brightness[i] = new SeekBar(this);
             brightness[i].setContentDescription(getString(R.string.brightness_for_role, role));
@@ -148,9 +155,15 @@ public final class MainActivity extends Activity {
                     ui.button(getString(R.string.settings), R.drawable.ic_tune, false, () -> showSettings(slot));
             parameters.setContentDescription(getString(R.string.settings_for_role, role));
             title.addView(parameters);
-            channel.addView(title);
-            ui.gap(channel, 10);
+            if (!shortLandscape) {
+                channel.addView(title);
+                ui.gap(channel, 10);
+            }
             previews[i] = ui.new PreviewCard(i == 0 ? getString(R.string.visible_light) : getString(R.string.infrared), getString(R.string.independent_stream), color);
+            if (shortLandscape) {
+                title.removeView(parameters);
+                previews[i].addAction(parameters);
+            }
             channel.addView(
                     previews[i],
                     compact
@@ -180,10 +193,12 @@ public final class MainActivity extends Activity {
             screen.addView(page, content);
         } else screen.addView(streams, content);
         LinearLayout footer = ui.row();
-        footer.setPadding(ui.dp(20), ui.dp(14), ui.dp(20), ui.dp(14));
+        footer.setPadding(ui.dp(20), ui.dp(shortLandscape ? 4 : 14), ui.dp(20), ui.dp(shortLandscape ? 4 : 14));
         open = ui.button(getString(R.string.open_both), 0, true, this::requestOpen);
         open.setEnabled(false);
-        if (width >= 900 || width >= 640 && width > height) {
+        if (shortLandscape) {
+            footer.addView(open, new LinearLayout.LayoutParams(0, -2, 1));
+        } else if (width >= 900 || width >= 640 && width > height) {
             footer.addView(
                     ui.label(getString(R.string.preview_rotation_hint), 12, ui.muted),
                     new LinearLayout.LayoutParams(0, -2, 1));
@@ -313,7 +328,7 @@ public final class MainActivity extends Activity {
         if (texture.getWidth() == 0 || texture.getHeight() == 0) return;
         StreamConfig config =
                 applied[slot] == null
-                        ? settings[slot].config(UVCCamera.PIXEL_FORMAT_NV21)
+                        ? settings[slot].config()
                         : applied[slot];
         texture.setTransform(
                 PreviewTransform.fitCenter(
@@ -366,14 +381,17 @@ public final class MainActivity extends Activity {
             if (!current() || camera.isClosed()) return;
             int slot = cameraSlot(camera.device);
             if (slot < 0 || cameras[slot] != camera) return;
+            StreamConfig actual = camera.actualConfig();
+            applied[slot] = actual;
+            fitPreview(slot);
             opened[slot] = true;
             previews[slot].state(
                     true,
-                    camera.config.width
+                    actual.width
                             + "×"
-                            + camera.config.height
+                            + actual.height
                             + " · "
-                            + camera.config.fps
+                            + actual.fps
                             + " FPS · "
                             + rotations[slot]
                             + "°");
@@ -457,6 +475,8 @@ public final class MainActivity extends Activity {
         deviceSelectors.refresh(manager.devices(), restoredDevices);
         restoredDevices = null;
         updateDeviceNames();
+        if (!failed && !hasCameras()) ui.setStatus(status, getString(deviceSelectors.statusText()),
+                deviceSelectors.hasPair() ? ui.accent : ui.muted);
     }
 
     private void updateDeviceNames() {
@@ -471,7 +491,7 @@ public final class MainActivity extends Activity {
     private void openPair() {
         if (!visible || manager == null || closing) return;
         UsbDevice rgb = deviceSelectors.selected(0), ir = deviceSelectors.selected(1);
-        if (rgb == null || ir == null || rgb.getDeviceName().equals(ir.getDeviceName())) {
+        if (!deviceSelectors.hasPair()) {
             ui.setStatus(status, getString(R.string.distinct_devices_required), ui.error);
             return;
         }
@@ -494,7 +514,7 @@ public final class MainActivity extends Activity {
             ui.setStatus(status, getString(R.string.connecting_permissions), ui.ir);
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
             for (int i = 0; i < 2; i++) {
-                applied[i] = settings[i].config(UVCCamera.PIXEL_FORMAT_NV21);
+                applied[i] = settings[i].config();
                 rotations[i] = settings[i].rotationDegrees();
                 previousCounts[i] = 0;
                 fitPreview(i);

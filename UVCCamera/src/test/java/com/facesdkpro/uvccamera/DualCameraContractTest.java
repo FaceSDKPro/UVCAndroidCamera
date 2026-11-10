@@ -96,6 +96,13 @@ public class DualCameraContractTest {
         assertEquals(40, tuned.maxPairSkewMillis);
         assertEquals(200, tuned.maxFrameAgeMillis);
         assertEquals(20, tuned.maxPairsPerSecond);
+        DualCameraConfig limited = tuned.withMaxPairsPerSecond(10);
+        assertEquals(10, limited.maxPairsPerSecond);
+        assertEquals(40, limited.maxPairSkewMillis); assertEquals(200, limited.maxFrameAgeMillis);
+        assertEquals(90, limited.rgbRotationDegrees); assertEquals(270, limited.irRotationDegrees);
+        assertSame(tuned.rgb, limited.rgb); assertSame(tuned.ir, limited.ir);
+        assertEquals(20, tuned.maxPairsPerSecond);
+        assertThrows(IllegalArgumentException.class, () -> limited.withMaxPairsPerSecond(0));
         assertThrows(IllegalArgumentException.class, () -> tuned.withPairingLimits(40, 39, 20));
     }
 

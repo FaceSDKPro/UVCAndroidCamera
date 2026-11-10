@@ -4,6 +4,8 @@ This standalone SDK manages independent RGB/IR USB cameras, previews, controls a
 The Demo consumes real NV21/GRAY8 frames without a HelloFace SDK dependency, models, face recognition or liveness decisions.
 For the HiFace Android integration steps and debugging counters, see [the Chinese integration guide](HIFACE_INTEGRATION.zh-CN.md).
 
+The AAR keeps its public API and ships JNI consumer rules. Enable R8 in the host app; for AGP 8.12/8.13, `android.r8.optimizedResourceShrinking=true` enables joint code/resource optimization. The delivered Demo uses this configuration.
+
 ## Build and obtain the SDK
 
 Use JDK 17, Android SDK 36 and NDK 29.0.14206865 at the source root:
@@ -13,7 +15,7 @@ Use JDK 17, Android SDK 36 and NDK 29.0.14206865 at the source root:
 ```
 
 This builds locally and creates a local Maven directory. It does not upload artifacts or run CI/CD.
-`build/sdk/uvc-android-camera-0.6.0/` and its ZIP contain:
+`build/sdk/uvc-android-camera-0.6.5/` and its ZIP contain:
 
 - `sdk/`: four-ABI Release AAR and Java sources JAR.
 - `maven-repository/`: fixed-version AAR, POM, Gradle module metadata and sources.
@@ -22,7 +24,7 @@ This builds locally and creates a local Maven directory. It does not upload arti
 - Bilingual documentation, licenses, `sdk-manifest.json` and `SHA256SUMS`.
 
 Minimum API levels are 21 for the SDK and 23 for the Demo. Use your own application signing for production.
-Version 0.6.0 is delivered as a local SDK bundle for HiFace. Use its AAR or bundled Maven repository; it is not published to Maven Central.
+Version 0.6.5 is delivered as a local SDK bundle for HiFace. Use its AAR or bundled Maven repository; it is not published to Maven Central.
 Select ABIs with `-PuvcAbis=arm64-v8a,armeabi-v7a` if needed. Keep builds with different ABI sets in separate delivery directories;
 do not mix different bytes under the same coordinates in a dependency cache.
 
@@ -49,28 +51,55 @@ dependencyResolutionManagement {
 Then add the application dependency:
 
 ```groovy
-dependencies { implementation 'com.facesdkpro:uvc-android-camera:0.6.0' }
+dependencies { implementation 'com.facesdkpro:uvc-android-camera:0.6.5' }
 ```
 
 Alternatively, copy the AAR into application `libs/` and use
-`implementation files('libs/uvc-android-camera-0.6.0.aar')`.
+`implementation files('libs/uvc-android-camera-0.6.5.aar')`.
 There are no third-party Java runtime dependencies. JNI consumer rules and native license notices are embedded.
 Do not also package upstream copies of the same classes or native libraries.
 
 ## Open a paired session
 
-Version 0.6.0 retains Middle as the default. Existing `DualCameraConfig.defaults()` calls continue to work.
+Version 0.6.5 retains Middle as the default. Existing `DualCameraConfig.defaults()` calls continue to work.
 Select High by replacing one configuration line:
 
 ```java
 DualCameraConfig config = DualCameraConfig.defaults(DualCameraConfig.Mode.HIGH);
 ```
 
-Middle and High request 15 and 30 FPS for both cameras, using 640×480 MJPEG, RGB NV21 and IR GRAY8.
+Middle and High prefer 15 and 30 FPS at 640×480 MJPEG. When unavailable, opening selects the nearest advertised geometry, then the nearest FPS, within the requested transport format. Ties prefer fewer pixels and lower FPS. Paired capture remains bounded to portrait/landscape 1080p, with RGB NV21 and IR GRAY8 output.
 Existing pairing limits apply, and capture mode takes effect when opening a session.
 
+Resolution preferences are independent of FPS: Medium prefers 640×480 and High prefers 1280×720.
+Both select the closest advertised mode. Changing resolution preserves FPS preferences, rotations and pairing limits:
+
+```java
+DualCameraConfig config = DualCameraConfig.defaults()
+    .withResolution(StreamConfig.Resolution.HIGH); // prefer 720p, still prefer 15 FPS
+```
+
+Use `Resolution.MIDDLE` to restore the default geometry preference. `StreamConfig.withResolution(...)` also supports single streams.
+
+Use SDK suggestions to initialize editable device selectors:
+
+```java
+CameraSelection selected = CameraSelection.suggest(DualCameraSession.devices(context));
+if (!CameraSelection.isPair(selected.rgb, selected.ir)) return; // show manual selectors
+UsbDevice rgbDevice = selected.rgb;
+UsbDevice irDevice = selected.ir;
+```
+
+Current caller-selected devices take priority, followed by verified VID/PID profiles, then case-insensitive RGB / Color /
+visible-light and IR / NIR / Infrared name hints. Chinese role names are supported. Equally ranked candidates, combined RGB/IR
+names and unknown labels leave the corresponding role null. An unlabelled remaining device is not assumed to be the other role;
+monochrome pixels are not used to infer an infrared sensor.
+`suggest(devices, rgbDeviceName, irDeviceName)` retains bindings for the current connection. USB device names are not persistent
+identities across reconnects; a missing preferred device is not silently replaced by this call. Suggestion does not open devices,
+read permission-protected serial numbers or create threads.
+
 Obtain CAMERA runtime permission and construct the session on the main thread.
-Bind RGB/IR roles using VID/PID, a port profile or explicit user selection, never enumeration order.
+Bind distinct RGB/IR devices using those suggestions or explicit user selection.
 `DualCameraSession.devices(context)` enumerates without starting a resident monitor.
 Each session requires two independent USB devices; multiple VideoStreaming interfaces within one device are not supported.
 
@@ -113,16 +142,19 @@ There is no silent device substitution or single-camera fallback.
 ## Resolution, frame rate and rotation
 
 Each `StreamConfig` width/height is the original capture resolution, and `fps` requests a device capture rate.
-The camera must support the full resolution/transport/FPS combination; unsupported requests fail explicitly.
+Explicit `new StreamConfig(...)` requests remain exact. Add `.withClosestSupportedMode()` to opt into the matching used by defaults.
+For normal integration use `StreamConfig.preferred(role, resolution, fps, transport)`; the SDK owns RGB NV21 / IR GRAY8 output formats and closest-mode selection. The Demo needs no low-level `UVCCamera` constants.
+After `onReady`, `session.actualConfig()` provides the negotiated modes. Low-level callers read `camera.actualConfig()` after `onOpened`; existing `config` fields retain the original requests.
+Use actual modes for preview transforms and `CameraFrame.width/height` for pixels. The SDK sizes pair buffers before frame delivery.
 Exposure, USB bandwidth and processing can lower the observed rate. `maxPairsPerSecond` limits consumer delivery only.
 
 ```java
-StreamConfig rgb = new StreamConfig(1280, 720, 30,
-    UVCCamera.UVC_VS_FRAME_MJPEG, UVCCamera.PIXEL_FORMAT_NV21, 0);
-StreamConfig ir = new StreamConfig(640, 480, 15,
-    UVCCamera.UVC_VS_FRAME_UNCOMPRESSED, UVCCamera.PIXEL_FORMAT_GRAY8, 0);
+StreamConfig rgb = StreamConfig.preferred(DualCameraSession.Role.RGB,
+    StreamConfig.Resolution.HIGH, 30, StreamConfig.Transport.MJPEG);
+StreamConfig ir = StreamConfig.preferred(DualCameraSession.Role.IR,
+    StreamConfig.Resolution.MIDDLE, 15, StreamConfig.Transport.YUYV);
 DualCameraConfig config = DualCameraConfig.forStreams(rgb, ir)
-    .withPairingLimits(50, 150, 15)
+    .withMaxPairsPerSecond(10)
     .withRotations(90, 270); // Independent clockwise rotations
 
 // Update after the TextureView is laid out and whenever its dimensions change.
@@ -136,6 +168,7 @@ rgbTextureView.setTransform(PreviewTransform.fitCenter(
 
 `forStreams()` starts with the default pair limits. `withPairingLimits()` and `withRotations()`
 return new configurations without mutating the original. The existing constructors remain available.
+Use `withMaxPairsPerSecond()` to change only delivery rate, preserving timing limits, rotations and capture preferences.
 
 Only 0/90/180/270 degrees are accepted. Preview uses a TextureView content transform without rotating a CPU display frame;
 see [Android TextureView](https://developer.android.com/reference/android/view/TextureView).
@@ -162,7 +195,7 @@ Demo choices are common candidate settings, not a capability guarantee for the s
 | RGB | NV21 | Packed Y + VU; Y/U/V rowStride=width, UV pixelStride=2 | 460800 |
 | IR | GRAY8 | Packed intensity, rowStride=width | 307200 |
 
-Defaults use Middle, with 640x480 MJPEG capture at 15 FPS per camera, at most 15 delivered pairs/s,
+Defaults use Middle, preferring 640x480 MJPEG at 15 FPS and selecting the closest supported mode when needed, at most 15 delivered pairs/s,
 at most 50 ms between host frame receipts and at most 150 ms age per frame at delivery.
 Only RGB NV21 / IR GRAY8 are accepted by the paired API, up to portrait/landscape 1080p; dimensions may differ.
 Skew/age limits are adjustable software starting points, not calibrated liveness or sensor synchronization thresholds.

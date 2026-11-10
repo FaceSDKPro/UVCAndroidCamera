@@ -2,7 +2,7 @@
 
 ## 构建与签名
 
-Play 和本地 APK 的应用 ID 均为 `com.helloface.uvccamera`。旧包名的下载 APK 可以与新版并存。新版若需覆盖安装，前后两次安装的签名须一致。首次在 Play Console 创建应用时核对包名注册状态。当前 `versionName` 为 0.6.0，`versionCode` 为 12，`targetSdk` 为 36。每次上传新版本前递增 Play 已使用的 `versionCode`。
+Play 和本地 APK 的应用 ID 均为 `com.helloface.uvccamera`。旧包名的下载 APK 可以与新版并存。新版若需覆盖安装，前后两次安装的签名须一致。首次在 Play Console 创建应用时核对包名注册状态。当前本地候选 `versionName` 为 0.6.5，`versionCode` 为 17，`targetSdk` 为 36。每次上传新版本前递增 Play 已使用的 `versionCode`。
 
 本地审查构建：
 
@@ -45,7 +45,7 @@ bundletool dump config --bundle=sample/build/outputs/bundle/play/sample-play.aab
 - [商店图标 512×512 PNG](assets/icon-512.png)
 - [英文宣传图 1024×500](assets/feature-en-US.jpg) · [简体中文宣传图 1024×500](assets/feature-zh-CN.jpg)
 - [UVC 双目相机中英文隐私政策](https://www.helloface.dev/en/uvc-camera-privacy)已发布到 HelloFace 官网，无需登录。在 Play Console 填写该地址。[本地政策源文件](privacy.html)与官网页面同步维护。
-- 真机截图位于 `build/play-submission/screenshots/`，英文和简体中文各有竖屏主界面与横屏设置画面。截图展示未连接外接摄像头时的真实界面。
+- 真机截图在 `assets/screenshots/`，英文和简体中文各 4 张，展示 0.6.5 无外接摄像头时的真实界面，含首页、调参与横屏双路预览。浅色商店图标直接复用 App 前景图形；其余语言使用英文资源。`assets/manifest.json` 记录素材摘要。使用 `tools/prepare_play_assets.mjs` 和 sharp 可重建排版，原始截图在本机 `build/play-submission-0.6.5-v17/screenshots/raw/`。
 
 ## Play Console 声明草稿
 
@@ -53,7 +53,7 @@ bundletool dump config --bundle=sample/build/outputs/bundle/play/sample-play.aab
 - App 类型选择应用，类别选择工具，定价为免费，默认语言 English (United States)，添加简体中文。目标受众选 18 岁及以上，面向需要配置外接双目摄像头的用户。应用无广告、内购、账号或用户生成内容，按这些事实完成内容分级问卷。支持邮箱为 FaceAISDK.Service@gmail.com。
 - 审核操作说明可填下方英文。选择有 USB Host 的 Android 手机或平板，并接入两个独立的 UVC 摄像头。无外接设备时，审核者仍可打开界面、查看设置及隐私政策。
 
-> This utility requires two independently detected UVC cameras and an Android device with USB host support. Connect both cameras using a compatible hub if needed. Open the app, tap Refresh devices, assign the RGB and IR cameras, then tap Start capture. Allow camera and USB access when Android asks. Open Dual preview to view each camera or adjust its settings. No account or login is required. Without connected cameras, the app shows the connection prompt and capture settings.
+> This utility requires two independently detected UVC cameras and an Android device with USB host support. Connect both cameras using a compatible hub if needed. Open the app, tap Refresh devices, assign the RGB and IR cameras, then tap Start preview. Allow camera and USB access when Android asks. Open Dual view to view each camera or adjust its settings. No account or login is required. Without connected cameras, the app shows the connection prompt and capture settings.
 
 ## 送审前检查
 

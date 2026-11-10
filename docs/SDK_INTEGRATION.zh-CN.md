@@ -4,6 +4,8 @@
 Demo 展示真实的 NV21 / GRAY8 采集与消费接口，不包含 HelloFace SDK、模型、人脸识别或活体判断。
 HiFace 的具体接入步骤与调试指标见 [HiFace Android 接入与本地调试](HIFACE_INTEGRATION.zh-CN.md)。
 
+AAR 保留公开 API 并携带 JNI consumer rules，由宿主 App 启用 R8。AGP 8.12/8.13 可使用 `android.r8.optimizedResourceShrinking=true` 联合优化代码和资源；交付 Demo 已启用。
+
 ## 获取 SDK 与 Demo
 
 在源码根目录，使用 JDK 17、Android SDK 36、NDK 29.0.14206865：
@@ -13,7 +15,7 @@ HiFace 的具体接入步骤与调试指标见 [HiFace Android 接入与本地�
 ```
 
 这只执行本地构建和本地 Maven 目录生成，不上传到远端、不运行 CI/CD。
-输出 `build/sdk/uvc-android-camera-0.6.0/` 及同名 ZIP，包含：
+输出 `build/sdk/uvc-android-camera-0.6.5/` 及同名 ZIP，包含：
 
 - `sdk/`：四 ABI Release AAR 与 Java 源码 JAR。
 - `maven-repository/`：固定版本的 AAR、POM、Gradle module 元数据和源码。
@@ -22,7 +24,7 @@ HiFace 的具体接入步骤与调试指标见 [HiFace Android 接入与本地�
 - 中英文说明、许可、`sdk-manifest.json` 和 `SHA256SUMS`。
 
 SDK 最低 API 21；Demo 最低 API 23。Demo APK 仅供开发演示，正式应用使用自己的签名。
-0.6.0 以本地 SDK 包交付给 HiFace，使用包内 AAR 或 Maven 仓库，未发布 Maven Central。ABI 可通过 `-PuvcAbis=arm64-v8a,armeabi-v7a` 选择；
+0.6.5 以本地 SDK 包交付给 HiFace，使用包内 AAR 或 Maven 仓库，未发布 Maven Central。ABI 可通过 `-PuvcAbis=arm64-v8a,armeabi-v7a` 选择；
 同一坐标的不同 ABI 构建应使用不同交付目录，不要混放到同一个依赖缓存。
 
 在解压目录执行 `shasum -a 256 -c SHA256SUMS` 校验交付文件。独立 Demo：
@@ -48,24 +50,50 @@ dependencyResolutionManagement {
 在应用模块添加：
 
 ```groovy
-dependencies { implementation 'com.facesdkpro:uvc-android-camera:0.6.0' }
+dependencies { implementation 'com.facesdkpro:uvc-android-camera:0.6.5' }
 ```
 
-也可把 `sdk/*.aar` 放入应用 `libs/`，使用 `implementation files('libs/uvc-android-camera-0.6.0.aar')`。
+也可把 `sdk/*.aar` 放入应用 `libs/`，使用 `implementation files('libs/uvc-android-camera-0.6.5.aar')`。
 库没有第三方 Java 运行时依赖；JNI 保留规则和原生许可随 AAR 打包。避免同时引入上游同名底层类或 `.so`。
 
 ## 打开双目会话
 
-0.6.0 继续默认使用 Middle，原 `DualCameraConfig.defaults()` 调用可继续使用。需要 High 时只替换一行：
+0.6.5 继续默认使用 Middle，原 `DualCameraConfig.defaults()` 调用可继续使用。需要 High 时只替换一行：
 
 ```java
 DualCameraConfig config = DualCameraConfig.defaults(DualCameraConfig.Mode.HIGH);
 ```
 
-Middle / High 分别请求两路 15 / 30 FPS，均使用 640×480 MJPEG、RGB NV21 / IR GRAY8。
-配对上限继续使用原有配置，模式在打开会话时应用。
+Middle / High 分别优先选择 15 / 30 FPS、640×480 MJPEG；不支持时在同一传输格式中就近匹配设备声明的分辨率与帧率。
+先选最接近的宽高，再选最接近的 FPS；相同距离优先较小画面和较低帧率。双目仍限制在横/竖 1080p 内。
+RGB NV21 / IR GRAY8 输出及配对上限由原配置决定，匹配仅在启动阶段执行。
 
-先取得 CAMERA 运行时权限，再在主线程调用。设备角色由 VID/PID、端口或用户明确选择绑定；不能使用枚举顺序。
+分辨率档位与 FPS 档位独立：默认中配优先 640×480，可选高配优先 1280×720。
+两者都就近匹配设备能力，切换分辨率不改变原 FPS 偏好、旋转或配对限制：
+
+```java
+DualCameraConfig config = DualCameraConfig.defaults()
+    .withResolution(StreamConfig.Resolution.HIGH); // 优先 720p，仍优先 15 FPS
+```
+
+`StreamConfig.withResolution(...)` 也支持单路设置；`Resolution.MIDDLE` 恢复中配偏好。
+
+SDK 可提供角色推荐，App 只需显示结果并允许修改：
+
+```java
+CameraSelection selected = CameraSelection.suggest(DualCameraSession.devices(context));
+if (!CameraSelection.isPair(selected.rgb, selected.ir)) return; // 页面提示手动选择
+UsbDevice rgbDevice = selected.rgb;
+UsbDevice irDevice = selected.ir;
+```
+
+推荐优先保留调用方传入的当前选择，其次使用已验证型号的 VID/PID，再按名称中的 RGB / Color / 可见光、
+IR / NIR / Infrared / 红外匹配，不区分大小写。多个同优先级候选、同时含两种角色的名称、无可靠标识时，对应角色返回 `null`。
+不会把剩余的一台未知设备猜作另一路，也不会使用画面是否灰度推断红外。
+`suggest(devices, rgbDeviceName, irDeviceName)` 可保留当前连接中的手动绑定；USB 设备名不是跨重连的永久身份，
+缺失的指定设备不会被此调用静默替换。推荐不打开设备、不读取需授权的序列号、不创建线程。
+
+先取得 CAMERA 运行时权限，再在主线程调用。按上述推荐或用户明确选择绑定角色，并确认两路是不同设备。
 `DualCameraSession.devices(context)` 只枚举，不创建常驻监控线程。一个会话管理两个独立 USB 设备，
 同一 USB 设备的多个 VideoStreaming 接口暂不支持。
 
@@ -107,16 +135,19 @@ session.close();
 ## 分辨率、帧率与旋转
 
 每路 `StreamConfig` 的宽高是相机的原始采集分辨率，`fps` 是向设备请求的采集帧率。
-设备必须支持完整的分辨率/传输格式/FPS 组合；不支持时明确失败。受曝光、USB 带宽及处理耗时影响，实际 FPS 可能低于请求值。
+显式 `new StreamConfig(...)` 保留精确模式，不支持时失败；调用 `.withClosestSupportedMode()` 可启用与默认档位相同的就近匹配。
+常规调用使用 `StreamConfig.preferred(role, resolution, fps, transport)`，RGB NV21 / IR GRAY8 输出格式及就近匹配开关由 SDK 管理，Demo 无需依赖底层 `UVCCamera` 常量。
+`onReady` 后用 `session.actualConfig()` 获取实际配置，低层 `onOpened` 使用 `camera.actualConfig()`；原 `config` 字段保留请求值。始终按 `CameraFrame.width/height` 解释帧数据。
+SDK 在帧回调前配置实际尺寸的配对缓冲，预览矩阵也应使用实际配置。受曝光、USB 带宽及处理耗时影响，实测 FPS 可能低于协商值。
 `maxPairsPerSecond` 仅限制算法线程的帧对交付，不会修改传感器 FPS。
 
 ```java
-StreamConfig rgb = new StreamConfig(1280, 720, 30,
-    UVCCamera.UVC_VS_FRAME_MJPEG, UVCCamera.PIXEL_FORMAT_NV21, 0);
-StreamConfig ir = new StreamConfig(640, 480, 15,
-    UVCCamera.UVC_VS_FRAME_UNCOMPRESSED, UVCCamera.PIXEL_FORMAT_GRAY8, 0);
+StreamConfig rgb = StreamConfig.preferred(DualCameraSession.Role.RGB,
+    StreamConfig.Resolution.HIGH, 30, StreamConfig.Transport.MJPEG);
+StreamConfig ir = StreamConfig.preferred(DualCameraSession.Role.IR,
+    StreamConfig.Resolution.MIDDLE, 15, StreamConfig.Transport.YUYV);
 DualCameraConfig config = DualCameraConfig.forStreams(rgb, ir)
-    .withPairingLimits(50, 150, 15)
+    .withMaxPairsPerSecond(10)
     .withRotations(90, 270); // 两路分别顺时针旋转
 
 // 等 TextureView 布局完成后、以及尺寸变化时更新。
@@ -128,6 +159,7 @@ rgbTextureView.setTransform(PreviewTransform.fitCenter(
 ```
 
 `forStreams()` 使用默认配对限制；`withPairingLimits()` 和 `withRotations()` 返回新配置，原配置不变。旧的构造函数仍可使用。
+仅调交付频率用 `withMaxPairsPerSecond()`，不必重复写入默认时间限制，也不会重置已有旋转或采集偏好。
 
 仅允许 0/90/180/270 度。预览使用 TextureView 内容变换，不旋转显示用的整帧 CPU 缓冲；
 调用方式见 [Android TextureView](https://developer.android.com/reference/android/view/TextureView)。
@@ -153,7 +185,7 @@ Demo 提供常见候选参数；候选出现在界面上不表示当前相机一
 | RGB | NV21 | 紧凑 Y + VU；Y/U/V rowStride=width，UV pixelStride=2 | 460800 |
 | IR | GRAY8 | 紧凑单通道；rowStride=width | 307200 |
 
-默认使用 Middle，采集 640×480、MJPEG、各 15 FPS；最多交付 15 对/秒。默认回调到达时间差不超过 50 ms，
+默认使用 Middle，优先采集 640×480、MJPEG、各 15 FPS，不支持时自动就近匹配；最多交付 15 对/秒。默认回调到达时间差不超过 50 ms，
 交付前每路数据不超过 150 ms。配置只接受 RGB NV21、IR GRAY8，分辨率最高为横/竖 1080p，
 两路可以具有不同分辨率。时间差/新鲜度是需要实测调整的起始设置，不是活体安全阈值。
 

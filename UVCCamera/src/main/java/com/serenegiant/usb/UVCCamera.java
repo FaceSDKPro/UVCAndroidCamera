@@ -1,3 +1,4 @@
+// Startup capability selection by FaceSDKPro, 2026-11-10; see UPSTREAM.md.
 // Additional exact-mode probe retry by FaceSDKPro, 2026-11-04; see UPSTREAM.md.
 // Modified by FaceSDKPro, 2026-11-03; see UPSTREAM.md for changes.
 /*
@@ -136,7 +137,17 @@ public class UVCCamera {
      *
      * @param ctrlBlock
      */
+    public interface PreviewSizeSelector {
+        /** Called once after USB open. Return null when no advertised mode is suitable. */
+        Size select(List<Size> supported);
+    }
+
     public synchronized int open(final UsbControlBlock ctrlBlock) {
+        return open(ctrlBlock, null);
+    }
+
+    /** Select capabilities on this connection, before starting native capture. */
+    public synchronized int open(final UsbControlBlock ctrlBlock, PreviewSizeSelector selector) {
         int result;
         try {
             mCtrlBlock = ctrlBlock.clone();
@@ -153,7 +164,17 @@ public class UVCCamera {
 
         updateSupportedFormats();
 
-        Size size = mParam.getPreviewSize();
+        Size size;
+        try {
+            size = selector == null ? mParam.getPreviewSize() : selector.select(getSupportedSizeList());
+        } catch (RuntimeException | Error error) {
+            close(true);
+            throw error;
+        }
+        if (selector != null && size == null) {
+            close(true);
+            return -51;
+        }
         if (size != null && !checkSizeValid(size.width, size.height, size.type, size.fps)) {
             close(true);
             return -2;
@@ -428,7 +449,7 @@ public class UVCCamera {
             for (Size size : sizeList) {
                 if (size.width == width && size.height == height
                         && size.type == frameType
-                        && (size.fps == fps || size.fpsList.contains(fps))) {
+                        && (size.fps == fps || size.fpsList != null && size.fpsList.contains(fps))) {
                     return true;
                 }
             }

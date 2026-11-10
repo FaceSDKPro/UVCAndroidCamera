@@ -21,6 +21,7 @@ final class FramePairDispatcher implements AutoCloseable {
     private final Object lock = new Object(), rgbProducer = new Object(), irProducer = new Object();
     private final ArrayDeque<Slot> rgbPool = new ArrayDeque<>(), irPool = new ArrayDeque<>();
     private final DualCameraConfig config;
+    private StreamConfig rgbConfig, irConfig;
     private final long sessionId, maxAge, maxSkew, interval, healthGap;
     private final Clock clock;
     private final Consumer consumer;
@@ -51,10 +52,8 @@ final class FramePairDispatcher implements AutoCloseable {
         maxSkew = TimeUnit.MILLISECONDS.toNanos(config.maxPairSkewMillis);
         interval = TimeUnit.SECONDS.toNanos(1) / config.maxPairsPerSecond;
         healthGap = Math.max(TimeUnit.MILLISECONDS.toNanos(300), maxAge * 2);
-        for (int i = 0; i < 2; i++) {
-            rgbPool.add(new Slot(config.rgb.width * config.rgb.height * 3 / 2));
-            irPool.add(new Slot(config.ir.width * config.ir.height));
-        }
+        configure(true, config.rgb);
+        configure(false, config.ir);
         worker = new ScheduledThreadPoolExecutor(1, task -> new Thread(task, "UVC-pairs")) {
             @Override protected void terminated() {
                 boolean notify;
@@ -64,6 +63,25 @@ final class FramePairDispatcher implements AutoCloseable {
         };
         worker.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
         worker.setRemoveOnCancelPolicy(true);
+    }
+
+    /** Startup only, before this role starts producing frames. Keep buffer/metadata geometry together. */
+    void configure(boolean isRgb, StreamConfig actual) {
+        synchronized (isRgb ? rgbProducer : irProducer) {
+            synchronized (lock) {
+                if (closed) return;
+                if ((isRgb ? rgbFrames : irFrames) != 0)
+                    throw new IllegalStateException("Cannot change a running stream's mode");
+                StreamConfig previous = isRgb ? rgbConfig : irConfig;
+                if (previous == null || previous.width != actual.width || previous.height != actual.height) {
+                    ArrayDeque<Slot> pool = isRgb ? rgbPool : irPool;
+                    int bytes = actual.width * actual.height * (isRgb ? 3 : 2) / 2;
+                    Slot first = new Slot(bytes), second = new Slot(bytes);
+                    pool.clear(); pool.add(first); pool.add(second);
+                }
+                if (isRgb) rgbConfig = actual; else irConfig = actual;
+            }
+        }
     }
 
     private static void copyPixels(CameraFrame frame, ByteBuffer target, int rotation) {
@@ -82,7 +100,7 @@ final class FramePairDispatcher implements AutoCloseable {
             Slot slot;
             synchronized (lock) {
                 if (closed) return;
-                StreamConfig stream = isRgb ? config.rgb : config.ir;
+                StreamConfig stream = isRgb ? rgbConfig : irConfig;
                 if (frame.width != stream.width || frame.height != stream.height || frame.pixelFormat != stream.pixelFormat)
                     throw new IllegalArgumentException("Frame does not match its role's configured format");
                 long previousTime = isRgb ? lastRgbArrival : lastIrArrival;
@@ -157,7 +175,7 @@ final class FramePairDispatcher implements AutoCloseable {
     }
 
     private CameraFrame frame(Slot slot, boolean isRgb) {
-        return new CameraFrame(slot.pixels.asReadOnlyBuffer(), isRgb ? config.rgb : config.ir,
+        return new CameraFrame(slot.pixels.asReadOnlyBuffer(), isRgb ? rgbConfig : irConfig,
                 isRgb ? config.rgbRotationDegrees : config.irRotationDegrees, slot.sequence,
                 slot.callback, slot.received, slot.nativeSequence);
     }

@@ -5,6 +5,18 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class CameraFailureContractTest {
+    @Test public void nativeOpenFailuresHaveSpecificReasonsAndKeepDiagnostics() {
+        int[] statuses = {-2, -51, -3, -4, -6, -7, -1};
+        CameraFailure.Code[] codes = {CameraFailure.Code.UNSUPPORTED_MODE, CameraFailure.Code.UNSUPPORTED_MODE,
+                CameraFailure.Code.USB_PERMISSION_DENIED, CameraFailure.Code.DEVICE_DETACHED,
+                CameraFailure.Code.DEVICE_BUSY, CameraFailure.Code.OPEN_TIMEOUT, CameraFailure.Code.OPEN_FAILED};
+        for (int i = 0; i < statuses.length; i++) {
+            CameraFailure failure = CameraFailure.openFailed(null, "fixture", statuses[i]);
+            assertEquals(codes[i], failure.code);
+            assertEquals(Integer.valueOf(statuses[i]), failure.nativeStatus);
+            assertEquals("fixture", failure.message);
+        }
+    }
     @Test public void structuredFailuresKeepOriginalStatusAndLegacyCallbackIsDeliveredOnce() {
         AtomicInteger single=new AtomicInteger(),dual=new AtomicInteger();
         Throwable cause=new IllegalStateException("unsupported synthetic mode");

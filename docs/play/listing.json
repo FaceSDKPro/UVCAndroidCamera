@@ -1,0 +1,19 @@
+{
+  "defaultLocale": "en-US",
+  "locales": {
+    "en-US": {
+      "title": "UVC Dual Camera: USB & IR",
+      "shortDescription": "Preview RGB and infrared USB cameras with live controls. Works offline.",
+      "fullDescription": "See both sides of your USB camera setup in one place. UVC Dual Camera brings color (RGB) and infrared (IR) camera previews to your Android phone or tablet, with independent controls and live stream information.\n\nTWO CAMERAS, ONE WORKSPACE\nView RGB and infrared streams side by side. Switch between portrait and landscape layouts, with controls designed to leave more room for your camera views.\n\nSET UP YOUR CAMERAS\nThe app suggests RGB and IR roles for recognized devices and clear camera names. You can always choose the roles yourself, including when device names do not identify them.\n\nCHOOSE YOUR CAPTURE SETTINGS\nSet each camera's resolution, frame rate, USB format and rotation. VGA and HD preferences target 640 × 480 and 1280 × 720. The app selects the closest supported resolution and frame rate. Adjust brightness when the camera supports it.\n\nCHECK THE STREAM\nInspect live RGB and IR frame rates, paired frame counts and arrival timing. Frame pairing is based on arrival times; it does not synchronize camera exposure.\n\nWORK OFFLINE\nCamera frames stay in device memory for live preview and processing. The app does not record video, save images or upload camera data. No account, ads or analytics.\n\nWHAT YOU NEED\nAn Android device with USB host support and two UVC cameras that Android detects separately. Use a compatible USB hub or adapter and sufficient power when needed. Supported resolutions, frame rates and controls depend on your cameras and connection. Built-in phone cameras and dual-lens devices exposed as a single USB camera are not supported.",
+      "tagline": "Two cameras. One workspace.",
+      "releaseNotes": "Improved USB camera compatibility with automatic resolution and frame-rate matching. Smarter RGB and IR suggestions, with manual selection for unknown devices. Larger previews and improved landscape controls. Refined English and Chinese text. R8 code and resource optimization. 16 KB aligned native libraries."
+    },
+    "zh-CN": {
+      "title": "UVC 双目相机：USB 与红外预览",
+      "shortDescription": "连接 USB 双目摄像头，实时查看 RGB 与红外画面，独立调参，离线使用",
+      "fullDescription": "在一个界面查看两路 USB 相机画面。UVC 双目相机可在 Android 手机和平板上预览 RGB 彩色与 IR 红外摄像头，提供独立调参和实时采集信息。\n\n双路画面，一个工作台\n并排查看 RGB 与红外预览。横竖屏布局自适应，让更多屏幕空间留给相机画面。\n\n轻松选择相机\n对已识别的设备或名称明确的相机，自动推荐 RGB 与 IR 角色。名称没有相应标识时，可手动选择；也可随时调整推荐结果。\n\n按需配置采集\n每路可独立选择分辨率、帧率、USB 格式与旋转角度。VGA 与 HD 分辨率偏好分别靠近 640 × 480 和 1280 × 720，自动匹配设备支持的最近分辨率和帧率。相机支持时可调节亮度。\n\n查看实时状态\n检查 RGB 与 IR 帧率、配对帧数和帧到达时间差。软件按到达时间配对，不同步两路相机曝光。\n\n离线使用\n画面仅在设备内存中处理，用于实时预览。应用不录像、不保存图像、不上传相机数据，无需账号，没有广告或统计分析。\n\n设备要求\n需要支持 USB Host 的 Android 设备，以及两个能被 Android 独立识别的 UVC 摄像头。必要时请使用兼容的 USB 集线器或转接器，并确保供电充足。实际分辨率、帧率和可用控制取决于相机与连接条件。不支持手机内置摄像头，也不支持仅暴露为单个 USB 相机的双镜头设备。",
+      "tagline": "双路画面，一个工作台",
+      "releaseNotes": "自动匹配设备支持的最近分辨率与帧率，提升 USB 相机兼容性。优化 RGB 与 IR 自动推荐，无明确标识时可手动选择。增大预览区域，改进横屏操作，统一中英文文案。 启用 R8 代码与资源联合优化，原生库支持 16 KB 对齐。"
+    }
+  }
+}

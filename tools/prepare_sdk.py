@@ -68,7 +68,8 @@ def main():
     with zipfile.ZipFile(aar) as archive:
         import io
         with zipfile.ZipFile(io.BytesIO(archive.read('classes.jar'))) as classes:
-            for name in ['DualCameraSession', 'DualCameraConfig', 'FramePair', 'Nv21Planes', 'FrameTransforms', 'PreviewTransform']:
+            for name in ['DualCameraSession', 'DualCameraConfig', 'CameraSelection', 'StreamConfig$Resolution', 'StreamConfig$Transport',
+                         'FramePair', 'Nv21Planes', 'FrameTransforms', 'PreviewTransform']:
                 if 'com/facesdkpro/uvccamera/' + name + '.class' not in classes.namelist():
                     raise ValueError('Missing public SDK API: ' + name)
     destination = ROOT / 'build/sdk' / stem

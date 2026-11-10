@@ -118,6 +118,11 @@ public final class DualSessionProbeActivity extends Activity {
                             source.withControls(role, control -> {
                                 boolean supported = control.isBrightnessEnable();
                                 if (supported) control.getBrightnessPercent();
+                                // 仅启动时读取曝光，便于区分协商帧率与实际出帧率。
+                                Log.i("UvcDualSdkAcceptance", "EXPOSURE mode=" + mode + ", role=" + role
+                                        + ", auto=" + (control.isAutoExposureModeEnable() ? control.getAutoExposureMode() : -1)
+                                        + ", priority=" + (control.isAutoExposurePriorityEnable() ? control.getAutoExposurePriority() : -1)
+                                        + ", absolute=" + (control.isExposureTimeAbsoluteEnable() ? control.getExposureTimeAbsolute() : -1));
                                 main.post(() -> controls++);
                             });
                         }
@@ -128,7 +133,7 @@ public final class DualSessionProbeActivity extends Activity {
                         check("error_policy_" + mode, mode == 4 || mode == 5,
                                 message + (cause == null ? "" : " · " + cause.getClass().getSimpleName()));
                         if (mode == 5) check("start_failure_reason_preserved", cause != null && source.failure() != null
-                                        && source.failure().code == CameraFailure.Code.OPEN_FAILED
+                                        && source.failure().code == CameraFailure.Code.UNSUPPORTED_MODE
                                         && source.failure().nativeStatus != null && source.failure().nativeStatus != 0,
                                 "structured native status=" + (source.failure() == null ? "none" : source.failure().nativeStatus));
                     }
@@ -194,15 +199,16 @@ public final class DualSessionProbeActivity extends Activity {
 
     private void sampleAndClose(DualCameraSession source, int mode) {
         if (session != source || source.isClosed()) return;
+        DualCameraConfig actual = source.actualConfig();
         double fps = pairs.get() > 1 ? (pairs.get() - 1) * 1e9 / (last.get() - first.get()) : 0;
         check("pairs_rate_" + mode, pairs.get() > 8 && fps <= source.config.maxPairsPerSecond+.5 && fps > 3,
                 "pairs=" + pairs.get() + ", fps=" + fps + ", requested_limit=" + source.config.maxPairsPerSecond
                         + ", input_latency_ms_mean=" + latencyTotal.get()/Math.max(1,pairs.get()*2)/1e6
                         + ", input_latency_ms_max=" + latencyMax.get()/1e6);
-        check("two_streams_" + mode, source.receivedFrames(DualCameraSession.Role.RGB) > source.config.rgb.fps
-                && source.receivedFrames(DualCameraSession.Role.IR) > source.config.ir.fps,
-                "RGB="+source.config.rgb.width+"x"+source.config.rgb.height+"@"+source.config.rgb.fps+"/"+source.config.rgbRotationDegrees
-                        +", IR="+source.config.ir.width+"x"+source.config.ir.height+"@"+source.config.ir.fps+"/"+source.config.irRotationDegrees);
+        check("two_streams_" + mode, source.receivedFrames(DualCameraSession.Role.RGB) > actual.rgb.fps
+                && source.receivedFrames(DualCameraSession.Role.IR) > actual.ir.fps,
+                "RGB="+actual.rgb.width+"x"+actual.rgb.height+"@"+actual.rgb.fps+"/"+actual.rgbRotationDegrees
+                        +", IR="+actual.ir.width+"x"+actual.ir.height+"@"+actual.ir.fps+"/"+actual.irRotationDegrees);
         if (mode <= 2) check("controls_" + mode, controls == 2, "reads=" + controls);
         if (mode == 1 || mode == 8 || mode == 10) check("rgb_preview_"+mode, updates.get() > 10, "updates=" + updates.get());
         source.close();

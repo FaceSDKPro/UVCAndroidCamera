@@ -26,12 +26,11 @@ import android.widget.Toast;
 import com.facesdkpro.uvccamera.CameraFailure;
 import com.facesdkpro.uvccamera.DualCameraConfig;
 import com.facesdkpro.uvccamera.DualCameraSession;
+import com.facesdkpro.uvccamera.DualCameraSession.Role;
 import com.facesdkpro.uvccamera.FramePair;
 import com.facesdkpro.uvccamera.Nv21Planes;
 import com.facesdkpro.uvccamera.PairingDiagnostics;
 import com.facesdkpro.uvccamera.PreviewTransform;
-import com.facesdkpro.uvccamera.StreamConfig;
-import com.serenegiant.usb.UVCCamera;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -96,7 +95,7 @@ public final class SdkDemoActivity extends Activity {
                                         pairing.expiredIr, pairing.skewRgb, pairing.skewIr));
                         if (n > 0) DemoUi.setText(previewCard.meta,
                                 getString(R.string.capture_output, pairWidth.get(), pairHeight.get(),
-                                        appliedConfig.rgbRotationDegrees));
+                                        appliedConfig.rgbRotationDegrees, appliedConfig.rgb.fps, appliedConfig.ir.fps));
                     } else clearMetrics();
                     previousRgb = rgb;
                     previousIr = ir;
@@ -117,42 +116,52 @@ public final class SdkDemoActivity extends Activity {
         ui = new DemoUi(this);
         int width = getResources().getConfiguration().screenWidthDp,
                 height = getResources().getConfiguration().screenHeightDp;
-        boolean wide = height >= 520 && (width >= 900 || width >= 640 && width > height);
+        boolean wide = width >= 900 || width >= 600 && width > height;
+        boolean shortLandscape = wide && height < 520;
         boolean compact = !wide && height < 900;
         LinearLayout screen = ui.column();
-        Button diagnostic =
-                ui.button(
-                        getString(R.string.dual_preview),
-                        R.drawable.ic_grid,
-                        false,
-                        () -> startActivity(new Intent(this, MainActivity.class)));
-        diagnostic.setContentDescription(getString(R.string.dual_preview_accessibility));
-        screen.addView(ui.header(getString(R.string.capture_title), getString(R.string.capture_subtitle), diagnostic));
-        status = ui.status(getString(R.string.select_two_cameras));
-        screen.addView(status, ui.margin(-1, -2, 20, 0, 20, 14));
+        status = shortLandscape ? ui.label(getString(R.string.select_two_cameras), 11, ui.muted)
+                : ui.status(getString(R.string.select_two_cameras));
+        if (shortLandscape) {
+            screen.addView(ui.compactHeader(getString(R.string.capture_title), status,
+                    ui.iconButton(getString(R.string.dual_preview_accessibility), R.drawable.ic_grid,
+                            () -> startActivity(new Intent(this, MainActivity.class)))));
+        } else {
+            Button diagnostic =
+                    ui.button(
+                            getString(R.string.dual_preview),
+                            R.drawable.ic_grid,
+                            false,
+                            () -> startActivity(new Intent(this, MainActivity.class)));
+            diagnostic.setContentDescription(getString(R.string.dual_preview_accessibility));
+            screen.addView(ui.header(getString(R.string.capture_title), getString(R.string.capture_subtitle), diagnostic));
+            screen.addView(status, ui.margin(-1, -2, 20, 0, 20, 14));
+        }
         LinearLayout controls = buildControls(!compact);
         deviceSelectors = new DeviceSelectors(ui, selectors);
         previewCard = ui.new PreviewCard(getString(R.string.rgb_preview), getString(R.string.independent_gray8), ui.rgb);
         preview = previewCard.texture;
         bindPreview();
-        LinearLayout stats = buildMetrics(wide);
+        LinearLayout stats = buildMetrics(wide, shortLandscape);
         LinearLayout body = wide ? ui.row() : ui.column();
         if (wide) {
             LinearLayout dashboard = ui.column();
             dashboard.addView(previewCard, new LinearLayout.LayoutParams(-1, 0, 1));
-            ui.gap(dashboard, 12);
-            dashboard.addView(stats);
+            if (!shortLandscape) {
+                ui.gap(dashboard, 12);
+                dashboard.addView(stats);
+            }
             body.addView(dashboard, new LinearLayout.LayoutParams(0, -1, 1));
-            ui.gap(body, 16);
+            ui.gap(body, shortLandscape ? 12 : 16);
             body.addView(
                     controls,
                     new LinearLayout.LayoutParams(
-                            ui.dp(Math.min(380, Math.max(310, width / 3))), -1));
+                            ui.dp(Math.min(380, Math.max(shortLandscape ? 280 : 310, width / 3))), -1));
         } else {
             body.addView(
                     previewCard,
                     new LinearLayout.LayoutParams(
-                            -1, ui.dp(Math.min(300, Math.max(170, height / 4)))));
+                            -1, ui.dp(Math.round(Math.min(300, Math.max(170, height / 4)) * 1.2f))));
             ui.gap(body, 10);
             body.addView(stats);
             ui.gap(body, 12);
@@ -163,7 +172,7 @@ public final class SdkDemoActivity extends Activity {
                             : new LinearLayout.LayoutParams(-1, 0, 1));
         }
         LinearLayout.LayoutParams bodyParams = new LinearLayout.LayoutParams(-1, 0, 1);
-        bodyParams.setMargins(ui.dp(20), 0, ui.dp(20), 0);
+        bodyParams.setMargins(ui.dp(shortLandscape ? 16 : 20), 0, ui.dp(shortLandscape ? 16 : 20), 0);
         if (compact) {
             ScrollView page = new ScrollView(this);
             page.setFillViewport(true);
@@ -171,7 +180,8 @@ public final class SdkDemoActivity extends Activity {
             screen.addView(page, bodyParams);
         } else screen.addView(body, bodyParams);
         LinearLayout footer = ui.row();
-        footer.setPadding(ui.dp(20), ui.dp(14), ui.dp(20), ui.dp(14));
+        footer.setPadding(ui.dp(shortLandscape ? 16 : 20), ui.dp(shortLandscape ? 4 : 14),
+                ui.dp(shortLandscape ? 16 : 20), ui.dp(shortLandscape ? 4 : 14));
         open =
                 ui.button(
                         getString(R.string.start_capture),
@@ -184,7 +194,11 @@ public final class SdkDemoActivity extends Activity {
                         });
         stop = ui.button(getString(R.string.stop), R.drawable.ic_stop, false, this::stopSession);
         stop.setEnabled(false);
-        if (wide) {
+        if (shortLandscape) {
+            footer.addView(stats, new LinearLayout.LayoutParams(0, -2, 1));
+            ui.gap(footer, 12);
+            footer.addView(open, new LinearLayout.LayoutParams(ui.dp(152), -2));
+        } else if (wide) {
             LinearLayout caption = ui.column();
             caption.addView(ui.strong("RGB NV21  +  IR GRAY8", 13, ui.text));
             ui.gap(caption, 4);
@@ -193,7 +207,7 @@ public final class SdkDemoActivity extends Activity {
             footer.addView(open, new LinearLayout.LayoutParams(ui.dp(200), -2));
         } else footer.addView(open, new LinearLayout.LayoutParams(0, -2, 1));
         ui.gap(footer, 12);
-        footer.addView(stop, new LinearLayout.LayoutParams(ui.dp(112), -2));
+        footer.addView(stop, new LinearLayout.LayoutParams(ui.dp(shortLandscape ? 96 : 112), -2));
         screen.addView(footer);
         if (state != null) {
             for (int i = 0; i < 2; i++) settings[i].restore(state.getIntArray("capture_" + i));
@@ -232,7 +246,7 @@ public final class SdkDemoActivity extends Activity {
             selectors[i] = ui.spinner(getString(R.string.device_for_role, role));
             card.addView(ui.deviceField(selectors[i]));
             ui.gap(card, 14);
-            settings[i] = new CaptureSettingsView(this, role);
+            settings[i] = new CaptureSettingsView(this, i == 0 ? Role.RGB : Role.IR);
             card.addView(settings[i]);
             fields.addView(card);
             ui.gap(fields, 12);
@@ -282,11 +296,11 @@ public final class SdkDemoActivity extends Activity {
         dialog.show();
     }
 
-    private LinearLayout buildMetrics(boolean wide) {
-        metrics[0] = ui.new Metric(getString(R.string.rgb_fps), "FPS", ui.rgb);
-        metrics[1] = ui.new Metric(getString(R.string.ir_fps), "FPS", ui.ir);
-        metrics[2] = ui.new Metric(getString(R.string.pair_rate), getString(R.string.pairs_per_second), ui.accent);
-        metrics[3] = ui.new Metric(getString(R.string.arrival_skew), "ms", ui.text);
+    private LinearLayout buildMetrics(boolean wide, boolean compact) {
+        metrics[0] = ui.new Metric(getString(R.string.rgb_fps), "FPS", ui.rgb, compact);
+        metrics[1] = ui.new Metric(getString(R.string.ir_fps), "FPS", ui.ir, compact);
+        metrics[2] = ui.new Metric(getString(R.string.pair_rate), getString(R.string.pairs_per_second), ui.accent, compact);
+        metrics[3] = ui.new Metric(getString(R.string.arrival_skew), "ms", ui.text, compact);
         LinearLayout group = ui.column();
         int columns = wide ? 4 : 2;
         for (int start = 0; start < 4; start += columns) {
@@ -299,7 +313,7 @@ public final class SdkDemoActivity extends Activity {
             if (start + columns < 4) ui.gap(group, 8);
         }
         pairingDetails = ui.label(getString(R.string.pairing_waiting), 11, ui.muted);
-        group.addView(pairingDetails, ui.margin(-1, -2, 4, 8, 4, 0));
+        if (!compact) group.addView(pairingDetails, ui.margin(-1, -2, 4, 8, 4, 0));
         return group;
     }
 
@@ -365,8 +379,7 @@ public final class SdkDemoActivity extends Activity {
         if (!failed)
             ui.setStatus(
                     status,
-                    deviceSelectors.size() < 2 ? getString(R.string.waiting_for_two_cameras) : getString(R.string.devices_ready),
-                    deviceSelectors.size() < 2 ? ui.muted : ui.accent);
+                    getString(deviceSelectors.statusText()), deviceSelectors.hasPair() ? ui.accent : ui.muted);
     }
 
     private String[] selectedDeviceNames() {
@@ -376,7 +389,7 @@ public final class SdkDemoActivity extends Activity {
     private void startSession() {
         if (!visible || session != null) return;
         UsbDevice rgb = deviceSelectors.selected(0), ir = deviceSelectors.selected(1);
-        if (rgb == null || ir == null || rgb.getDeviceName().equals(ir.getDeviceName())) {
+        if (!deviceSelectors.hasPair()) {
             ui.setStatus(status, getString(R.string.select_distinct_cameras), ui.error);
             return;
         }
@@ -384,11 +397,9 @@ public final class SdkDemoActivity extends Activity {
             ui.setStatus(status, getString(R.string.preview_preparing), ui.ir);
             return;
         }
-        StreamConfig rgbConfig = settings[0].config(UVCCamera.PIXEL_FORMAT_NV21),
-                irConfig = settings[1].config(UVCCamera.PIXEL_FORMAT_GRAY8);
         appliedConfig =
-                DualCameraConfig.forStreams(rgbConfig, irConfig)
-                        .withPairingLimits(50, 150, PAIR_RATES[pairRate.getSelectedItemPosition()])
+                DualCameraConfig.forStreams(settings[0].config(), settings[1].config())
+                        .withMaxPairsPerSecond(PAIR_RATES[pairRate.getSelectedItemPosition()])
                         .withRotations(settings[0].rotationDegrees(), settings[1].rotationDegrees());
         fitPreview();
         pairs.set(0);
@@ -418,6 +429,8 @@ public final class SdkDemoActivity extends Activity {
                                 @Override
                                 public void onReady(DualCameraSession source) {
                                     if (session == source && visible) {
+                                        appliedConfig = source.actualConfig();
+                                        fitPreview();
                                         ui.setStatus(status, getString(R.string.dual_capture_active), ui.accent);
                                         previewCard.state(true, getString(R.string.waiting_first_frame));
                                         open.setEnabled(true);

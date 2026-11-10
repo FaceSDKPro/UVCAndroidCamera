@@ -2,6 +2,7 @@ package com.facesdkpro.uvccamera.sample;
 
 import android.hardware.usb.UsbDevice;
 import android.widget.Spinner;
+import com.facesdkpro.uvccamera.CameraSelection;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -22,15 +23,16 @@ final class DeviceSelectors {
     }
 
     void refresh(List<UsbDevice> connected, String[] restored) {
-        // 热插拔后按设备名恢复；无历史选择时按已知 VID/PID 预选。
+        // 保留当前选择；型号及名称的角色推荐统一由 SDK 完成。
         String[] previous = restored != null && restored.length == 2 ? restored : selectedNames();
         List<String> labels = new ArrayList<>(connected.size());
         for (UsbDevice device : connected) {
+            String name = device.getProductName();
             labels.add(
                     String.format(
                             Locale.ROOT,
                             "%s · %04X:%04X",
-                            device.getProductName(),
+                            name == null || name.trim().isEmpty() ? ui.context.getString(R.string.usb_camera) : name,
                             device.getVendorId(),
                             device.getProductId()));
         }
@@ -39,24 +41,14 @@ final class DeviceSelectors {
         if (unchanged && restored == null) return;
         descriptions = labels;
         populated = true;
+        CameraSelection suggested = CameraSelection.suggest(devices, previous[0], previous[1]);
+        UsbDevice[] selectedDevices = {suggested.rgb, suggested.ir};
         for (int role = 0; role < 2; role++) {
             List<String> choices = new ArrayList<>(labels.size() + 1);
             choices.add(role == 0 ? ui.context.getString(R.string.select_rgb) : ui.context.getString(R.string.select_ir));
             choices.addAll(labels);
             ui.deviceItems(controls[role], choices);
-            int selected = 0;
-            for (int i = 0; i < devices.size(); i++) {
-                UsbDevice device = devices.get(i);
-                boolean known =
-                        role == 0
-                                ? device.getVendorId() == 0x1187 && device.getProductId() == 0x3a49
-                                : device.getVendorId() == 0x1871 && device.getProductId() == 0x3b49;
-                if (device.getDeviceName().equals(previous[role])
-                        || previous[role] == null && known) {
-                    selected = i + 1;
-                }
-            }
-            controls[role].setSelection(selected);
+            controls[role].setSelection(devices.indexOf(selectedDevices[role]) + 1);
         }
     }
 
@@ -88,5 +80,14 @@ final class DeviceSelectors {
 
     int size() {
         return devices.size();
+    }
+
+    boolean hasPair() {
+        return CameraSelection.isPair(selected(0), selected(1));
+    }
+
+    int statusText() {
+        return size() < 2 ? R.string.waiting_for_two_cameras
+                : hasPair() ? R.string.devices_ready : R.string.select_roles_manually;
     }
 }

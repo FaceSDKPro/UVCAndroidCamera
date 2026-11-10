@@ -50,7 +50,7 @@ final class DemoUi {
     }
 
     String failureText(CameraFailure failure) {
-        Log.w("UvcDemo", failure.message, failure.cause);
+        Log.w("UvcDemo", failure.code + ": " + failure.message, failure.cause);
         int label;
         switch (failure.code) {
             case INITIALIZATION: label = R.string.camera_init_failed; break;
@@ -63,11 +63,12 @@ final class DemoUi {
             case CAMERA_CLOSED: label = R.string.camera_closed; break;
             case CONTROL_FAILED: label = R.string.camera_control_failed; break;
             case RELEASE_FAILED: label = R.string.camera_release_failed; break;
+            case UNSUPPORTED_MODE: label = R.string.camera_mode_unsupported; break;
+            case DEVICE_BUSY: label = R.string.camera_busy; break;
+            case OPEN_TIMEOUT: label = R.string.camera_open_timeout; break;
             default: label = R.string.open_failed; break;
         }
-        String message = context.getString(label);
-        return failure.nativeStatus == null ? message
-                : context.getString(R.string.camera_error_status, message, failure.nativeStatus);
+        return context.getString(label);
     }
 
     LinearLayout column() {
@@ -157,6 +158,19 @@ final class DemoUi {
         gap(v, 6);
         v.addView(control, new LinearLayout.LayoutParams(-1, -2));
         return v;
+    }
+
+    LinearLayout compactHeader(String title, TextView status, View action) {
+        LinearLayout bar = row();
+        bar.setPadding(dp(16), dp(4), dp(16), dp(4));
+        bar.addView(strong(title, 16, text));
+        gap(bar, 12);
+        status.setSingleLine();
+        status.setEllipsize(TextUtils.TruncateAt.END);
+        bar.addView(status, new LinearLayout.LayoutParams(0, -2, 1));
+        gap(bar, 12);
+        bar.addView(action, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        return bar;
     }
 
     LinearLayout deviceField(View control) {
@@ -305,26 +319,33 @@ final class DemoUi {
         final TextView value, detail;
 
         Metric(String caption, String unit, int color) {
+            this(caption, unit, color, false);
+        }
+
+        Metric(String caption, String unit, int color, boolean compact) {
             super(DemoUi.this.context);
             setOrientation(VERTICAL);
-            setPadding(dp(12), dp(11), dp(12), dp(11));
+            setPadding(dp(compact ? 8 : 12), dp(compact ? 4 : 11), dp(compact ? 8 : 12), dp(compact ? 4 : 11));
             setBackground(shape(surface, 14, border));
-            addView(label(caption, 11, muted));
-            gap(this, 6);
+            TextView heading = label(caption, compact ? 10 : 11, muted);
+            heading.setSingleLine();
+            heading.setEllipsize(TextUtils.TruncateAt.END);
+            addView(heading);
+            gap(this, compact ? 2 : 6);
             LinearLayout values = row();
-            value = strong("—", 24, color);
+            value = strong("—", compact ? 18 : 24, color);
             value.setFontFeatureSettings("tnum");
             value.setSingleLine();
             value.setContentDescription(caption);
             values.addView(value);
             gap(values, 5);
-            values.addView(label(unit, 11, muted));
+            values.addView(label(unit, compact ? 9 : 11, muted));
             addView(values);
-            gap(this, 5);
+            if (!compact) gap(this, 5);
             detail = label(context.getString(R.string.waiting_for_capture), 11, muted);
             detail.setSingleLine();
             detail.setEllipsize(TextUtils.TruncateAt.END);
-            addView(detail);
+            if (!compact) addView(detail);
         }
 
         void set(String number, String caption) {
@@ -337,6 +358,7 @@ final class DemoUi {
         final TextureView texture;
         final TextView meta, badge, emptyTitle, emptyDetail;
         final LinearLayout empty;
+        private final LinearLayout head;
         private int displayState = -1;
 
         PreviewCard(String title, String format, int color) {
@@ -344,19 +366,22 @@ final class DemoUi {
             setOrientation(VERTICAL);
             setBackground(shape(surface, 16, border));
             setClipToOutline(true);
-            LinearLayout head = row();
-            head.setPadding(dp(16), dp(13), dp(16), dp(13));
+            head = row();
+            head.setPadding(dp(12), dp(8), dp(12), dp(12));
+            head.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                    new int[] {0x99050b14, 0x55050b14, 0x00050b14}));
             LinearLayout titles = column();
-            titles.addView(strong(title, 15, text));
-            gap(titles, 4);
-            meta = label(format, 12, muted);
+            titles.addView(strong(title, 14, 0xeef3f7ff));
+            gap(titles, 2);
+            meta = label(format, 11, 0xd9dce8f3);
+            meta.setSingleLine();
+            meta.setEllipsize(TextUtils.TruncateAt.END);
             titles.addView(meta);
             head.addView(titles, new LinearLayout.LayoutParams(0, -2, 1));
             badge = strong(context.getString(R.string.not_capturing), 11, muted);
             badge.setPadding(dp(9), dp(5), dp(9), dp(5));
-            badge.setBackground(shape(input, 8, 0));
+            badge.setBackground(shape(tint(muted, 36), 8, 0));
             head.addView(badge);
-            addView(head);
             FrameLayout frame = new FrameLayout(context);
             frame.setBackgroundColor(0xff050b14);
             texture = new TextureView(context);
@@ -392,8 +417,12 @@ final class DemoUi {
                         emptyDetail.setVisibility(compact ? View.GONE : View.VISIBLE);
                     });
             frame.addView(empty, new FrameLayout.LayoutParams(-1, -1));
+            // 标题与参数覆盖在视频上，渐变底只提高文字可读性，不占用画面高度。
+            frame.addView(head, new FrameLayout.LayoutParams(-1, -2, Gravity.TOP));
             addView(frame, new LinearLayout.LayoutParams(-1, 0, 1));
         }
+
+        void addAction(View action) { head.addView(action); }
 
         void state(boolean active, String info) {
             display(active ? 2 : 0, info);
@@ -411,7 +440,7 @@ final class DemoUi {
             empty.setVisibility(active ? View.GONE : View.VISIBLE);
             badge.setText(state == 1 ? context.getString(R.string.connecting) : active ? context.getString(R.string.capturing) : context.getString(R.string.not_capturing));
             badge.setTextColor(state == 1 ? ir : active ? accent : muted);
-            badge.setBackground(shape(active ? tint(accent, 22) : input, 8, 0));
+            badge.setBackground(shape(tint(active ? accent : muted, 36), 8, 0));
             setText(emptyTitle, state == 1 ? context.getString(R.string.connecting_camera) : context.getString(R.string.preview_waiting));
             setText(emptyDetail, state == 1 ? context.getString(R.string.allow_camera_usb) : context.getString(R.string.preview_start_hint));
         }
