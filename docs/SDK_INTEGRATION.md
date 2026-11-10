@@ -24,7 +24,7 @@ This builds locally and creates a local Maven directory. It does not upload arti
 - Bilingual documentation, licenses, `sdk-manifest.json` and `SHA256SUMS`.
 
 Minimum API levels are 21 for the SDK and 23 for the Demo. Use your own application signing for production.
-Version 0.6.5 is delivered as a local SDK bundle for HiFace. Use its AAR or bundled Maven repository; it is not published to Maven Central.
+Get version 0.6.5 from the [GitHub Release](https://github.com/FaceSDKPro/UVCAndroidCamera/releases/tag/v0.6.5): [complete SDK ZIP](https://github.com/FaceSDKPro/UVCAndroidCamera/releases/download/v0.6.5/uvc-android-camera-0.6.5.zip) or [AAR](https://github.com/FaceSDKPro/UVCAndroidCamera/releases/download/v0.6.5/uvc-android-camera-0.6.5.aar). The release also includes Java sources, a developer Demo APK and SHA-256 checksums. Use the AAR or bundled Maven repository for HiFace; it is not published to Maven Central.
 Select ABIs with `-PuvcAbis=arm64-v8a,armeabi-v7a` if needed. Keep builds with different ABI sets in separate delivery directories;
 do not mix different bytes under the same coordinates in a dependency cache.
 

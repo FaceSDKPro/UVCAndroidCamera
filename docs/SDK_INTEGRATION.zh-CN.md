@@ -24,7 +24,7 @@ AAR 保留公开 API 并携带 JNI consumer rules，由宿主 App 启用 R8。AG
 - 中英文说明、许可、`sdk-manifest.json` 和 `SHA256SUMS`。
 
 SDK 最低 API 21；Demo 最低 API 23。Demo APK 仅供开发演示，正式应用使用自己的签名。
-0.6.5 以本地 SDK 包交付给 HiFace，使用包内 AAR 或 Maven 仓库，未发布 Maven Central。ABI 可通过 `-PuvcAbis=arm64-v8a,armeabi-v7a` 选择；
+0.6.5 从 [GitHub Release](https://github.com/FaceSDKPro/UVCAndroidCamera/releases/tag/v0.6.5) 下载：[完整 SDK ZIP](https://github.com/FaceSDKPro/UVCAndroidCamera/releases/download/v0.6.5/uvc-android-camera-0.6.5.zip) 或 [AAR](https://github.com/FaceSDKPro/UVCAndroidCamera/releases/download/v0.6.5/uvc-android-camera-0.6.5.aar)。同时提供 Java 源码、开发 Demo APK 和 SHA-256 校验文件。HiFace 可使用 AAR 或包内 Maven 仓库，未发布 Maven Central。ABI 可通过 `-PuvcAbis=arm64-v8a,armeabi-v7a` 选择；
 同一坐标的不同 ABI 构建应使用不同交付目录，不要混放到同一个依赖缓存。
 
 在解压目录执行 `shasum -a 256 -c SHA256SUMS` 校验交付文件。独立 Demo：

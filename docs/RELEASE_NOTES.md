@@ -1,5 +1,9 @@
 # UVCAndroidCamera 0.6.5
 
+[GitHub Release / SDK 下载](https://github.com/FaceSDKPro/UVCAndroidCamera/releases/tag/v0.6.5)：完整 SDK ZIP、四 ABI AAR、Java 源码、开发 Demo APK 和 SHA-256 校验文件。
+
+The release includes the complete SDK ZIP, four-ABI AAR, Java sources, developer Demo APK and SHA-256 checksums.
+
 - 启用 R8 代码与资源联合优化，保留 JNI 所需规则；四 ABI 原生库继续按 16 KB ELF 与 APK ZIP 对齐。
 - 包含 0.6.1–0.6.3 的模式就近匹配、RGB/IR 推荐和预览布局改进；复杂逻辑继续封装在 SDK 内。
 - 优化 App 中英文文案，默认英文，简体中文本地化；新增系统的应用语言声明，其他语言回退英文。

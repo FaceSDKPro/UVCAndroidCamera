@@ -9,6 +9,13 @@
 - 小米页大小为 4096 字节；本轮没有 16 KB 页设备运行或新一轮 USB 采集。联合资源优化前后 AAB 约 2.03 MB、资源字节相同，本次不据此宣称吞吐、内存或延迟改善。
 - 原始记录、截图、R8 配置/映射与产物审计保存在本机 `build/play-submission-0.6.5-v17/`。独立 `demo-source` 仅依赖交付 Maven AAR 完成离线 R8 构建与 Lint；最终 SDK 清单绑定干净源码 `d827e28`，65 项交付校验和通过。CI/CD 继续保持手动入口，未触发工作流。
 
+## SDK 0.6.5 GitHub Release 交付核验（2026-11-10）
+
+- 在 R8 与 16 KB 对齐验证完成后，重新整理 SDK 0.6.5 完整包、四 ABI AAR、Java sources JAR、开发 Demo APK 与外层 `SHA256SUMS`，通过 GitHub Release `v0.6.5` 交付；中英文接入文档提供直接下载入口。
+- 本次重新执行本地 `prepareSdk` 和产物审计；46 项 Java 单测结果为 0 失败、0 错误、0 跳过。独立 `demo-source` 仅依赖交付 Maven AAR，离线 R8 构建和 Lint 通过，实际执行 `minifyDemoWithR8`，没有引入 `UVCCamera` 源码模块。
+- AAR 与 Java sources JAR 的字节和送审时保存的 SDK 一致；变化涉及文档、交付清单与 Demo 的源码版本元数据，不重复计为新的采集性能或 16 KB 页设备运行验收。送审时的原包保留于 `build/sdk-archive/uvc-android-camera-0.6.5-source-d827e28.zip`。
+- 最终交付清单绑定发布标签所指向的干净源码提交。GitHub Release 手动上传已经审计的产物，CI/CD 保持暂停。
+
 ## SDK 0.6.3 精简 Demo 调用（2026-11-10）
 
 - `StreamConfig.preferred(role, resolution, fps, transport)` 统一生成 RGB NV21 / IR GRAY8 及就近匹配配置，默认配置也复用此路径。新增 `Transport` 枚举，Demo 配置视图只传递选择，不再拼装底层 UVC 常量、输出格式及匹配开关；普通 Demo 源码不再引用 `UVCCamera`。
